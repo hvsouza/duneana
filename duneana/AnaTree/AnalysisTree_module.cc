@@ -81,6 +81,7 @@
 
 #include "larpandora/LArPandoraInterface/LArPandoraHelper.h"
 #include "duneopdet/OpticalDetector/OpFlashSort.h"
+#include "dunereco/FDSensOpt/FDSensOptData/EnergyRecoOutput.h"
 
 #include "lardata/ArtDataHelper/MVAReader.h"
 
@@ -469,7 +470,7 @@ namespace dune {
     }; // class PFParticleDataStruct
 
     enum DataBits_t: unsigned int {
-      tdAuxDet = 0x01,
+        tdAuxDet = 0x01,
         tdCry = 0x02,
         tdGenie = 0x04,
         tdGeant = 0x08,
@@ -485,9 +486,10 @@ namespace dune {
         tdPandoraNuVertex = 0x2000,
         tdPFParticle = 0x4000,
         tdCount = 0x8000,
-  tdProto = 0x10000,
-  tdSpacePoint = 0x20000,
-  tdCnn = 0x40000,
+        tdProto = 0x10000,
+        tdSpacePoint = 0x20000,
+        tdCnn = 0x40000,
+        tdnuReco = 0x80000,
         tdDefault = 0
         }; // DataBits_t
 
@@ -570,6 +572,67 @@ namespace dune {
     Float_t nuvtxy[kMaxVertices];
     Float_t nuvtxz[kMaxVertices];
     Short_t nuvtxpdg[kMaxVertices];
+
+    // Reconstructed neutrino energy information (energy in GeV)
+    // NOTE: To use this information, remember to call the producers of energy reco.
+    // Here is an small example of how to call it on the fcl file:
+    // physics:
+    // {
+    //   producers:{
+    //     energyreconue:  @local::dunefd_nuenergyreco_pandora_nue
+    //     energyreconumu: @local::dunefd_nuenergyreco_pandora_numu
+    //     energyreconumurange: @local::dunefd_nuenergyreco_pandora_numu
+    //     energyreconumumcschi2: @local::dunefd_nuenergyreco_pandora_numu
+    //     energyreconumumcsllhd: @local::dunefd_nuenergyreco_pandora_numu
+    //     energyreconc: @local::dunefd_nuenergyreco_pandora_nc
+    //   }
+    //  analyzers:
+    // {
+    //  analysistree:      @local::dune10kt_analysistree
+    // }
+    //  #define the output stream, there could be more than one if using filters
+    //  stream1:  [ ]
+
+    //  #define the producer and filter modules for this path, order matters,
+    //  #filters reject all following items.  see lines starting physics.producers below
+    //  prod: [energyreconue, energyreconumu, energyreconumurange, energyreconumumcschi2, energyreconumumcsllhd, energyreconc]
+    //  ana:  [ analysistree ]
+
+    // .. Later:
+
+    // # 1 = longest reco track + hadronic, 2 = reco shower with highest charge + hadronic, 3 = all hit charges
+    // physics.producers.energyreconue.RecoMethod:   2
+    // physics.producers.energyreconumu.RecoMethod:  1
+    // physics.producers.energyreconumurange.RecoMethod:  1
+    // physics.producers.energyreconumumcschi2.RecoMethod:  1
+    // physics.producers.energyreconumumcsllhd.RecoMethod:  1
+    // physics.producers.energyreconc.RecoMethod:  3
+
+    // physics.producers.energyreconumurange.LongestTrackMethod: 1
+
+    // physics.producers.energyreconumumcschi2.LongestTrackMethod: 2
+    // physics.producers.energyreconumumcschi2.NeutrinoEnergyRecoAlg.MCSMethod: "Chi2"
+
+    // physics.producers.energyreconumumcsllhd.LongestTrackMethod: 2
+    // physics.producers.energyreconumumcsllhd.NeutrinoEnergyRecoAlg.MCSMethod: "LLHD"
+
+    Float_t Ev_reco_nue;            // Neutrino energy reconstructed as nue
+    Float_t RecoLepEnNue;           // Reconstructed lepton energy as nue
+    Float_t RecoHadEnNue;           // Reconstructed Hadronic energy
+    Int_t   RecoMethodNue;          // Reconstruction method used
+
+    Float_t Ev_reco_numu;           // Neutrino Energy reconstructed as numu
+    Float_t RecoLepEnNumu;          // Reconstructed lepton energy as numu
+    Float_t RecoHadEnNumu;          // Reconstructed Hadronic energy
+    Int_t   RecoMethodNumu;         // Reconstruction method used
+    Int_t   LongestTrackContNumu;   // Longest track contained: 1       = yes, 0=no, -1=no (but methods failed, so used nc)
+    Int_t   TrackMomMethodNumu;     // Method used for track momentum: -1 = not set (nc), 0=MCS, 1=range
+
+    Float_t Ev_reco_nc;             // Neutrino Energy reconstructed as nc
+
+    Float_t RecoLepEnNumu_range;    // Reconstructed lepton energy using only range
+    Float_t RecoLepEnNumu_mcs_chi2; // Reconstructed lepton energy using MCS chi2 method
+    Float_t RecoLepEnNumu_mcs_llhd; // Reconstructed lepton energy using MCS log likelihood method
 
     //Cluster Information
     Short_t nclusters;				      //number of clusters in a given event
@@ -976,6 +1039,9 @@ namespace dune {
     /// Returns whether we have Vertex data
     bool hasVertexInfo() const { return bits & tdVertex; }
 
+    /// Returns whether we have Vertex data
+    bool hasNuRecoInfo() const { return bits & tdnuReco; }
+
     /// Returns whether we have PFParticle data
     bool hasPFParticleInfo() const { return bits & tdPFParticle; }
 
@@ -1270,6 +1336,12 @@ namespace dune {
     std::vector<std::string> fTrackModuleLabel;
     std::string fPFParticleModuleLabel;
     std::vector<std::string> fVertexModuleLabel;
+    std::string fEnergyRecoNueLabel;
+    std::string fEnergyRecoNumuLabel;
+    std::string fEnergyRecoNumuRangeLabel;
+    std::string fEnergyRecoNumuMCSChi2Label;
+    std::string fEnergyRecoNumuMCSLLHDLabel;
+    std::string fEnergyRecoNCLabel;
     std::vector<std::string> fShowerModuleLabel;
     std::vector<std::string> fCalorimetryModuleLabel;
     std::vector<std::string> fParticleIDModuleLabel;
@@ -1291,6 +1363,7 @@ namespace dune {
     bool fSaveRawDigitInfo; ///whether to extract and save Raw Digit information
     bool fSaveTrackInfo; ///whether to extract and save Track information
     bool fSaveVertexInfo; ///whether to extract and save Vertex information
+    bool fSaveNuRecoEnergyInfo; ///whether to extract and save Neutrino reconstructed energy information. Call products first!
     bool fSaveClusterInfo;  ///whether to extract and save Cluster information
     bool fSavePandoraNuVertexInfo; ///whether to extract and save nu vertex information from Pandora
     bool fSaveFlashInfo;  ///whether to extract and save Flash information
@@ -1347,6 +1420,7 @@ namespace dune {
         fData->SetBits(AnalysisTreeDataStruct::tdPandoraNuVertex,!fSavePandoraNuVertexInfo);
         fData->SetBits(AnalysisTreeDataStruct::tdTrack,  !fSaveTrackInfo);
         fData->SetBits(AnalysisTreeDataStruct::tdVertex, !fSaveVertexInfo);
+        fData->SetBits(AnalysisTreeDataStruct::tdnuReco, !fSaveNuRecoEnergyInfo);
         fData->SetBits(AnalysisTreeDataStruct::tdAuxDet, !fSaveAuxDetInfo);
         fData->SetBits(AnalysisTreeDataStruct::tdPFParticle, !fSavePFParticleInfo);
         fData->SetBits(AnalysisTreeDataStruct::tdSpacePoint, !fSaveSpacePointSolverInfo);
@@ -2358,6 +2432,25 @@ void dune::AnalysisTreeDataStruct::ClearLocalData() {
   std::fill(nuvtxy, nuvtxy + sizeof(nuvtxy)/sizeof(nuvtxy[0]), -99999.);
   std::fill(nuvtxz, nuvtxz + sizeof(nuvtxz)/sizeof(nuvtxz[0]), -99999.);
   std::fill(nuvtxpdg, nuvtxpdg + sizeof(nuvtxpdg)/sizeof(nuvtxpdg[0]), -99999);
+  
+  // Reconstructed neutrino energy
+  Ev_reco_nue = -99999.;
+  RecoLepEnNue = -99999.;
+  RecoHadEnNue = -99999.;
+  RecoMethodNue = -99999.;
+
+  Ev_reco_numu = -99999.;
+  RecoLepEnNumu = -99999.;
+  RecoHadEnNumu = -99999.;
+  RecoMethodNumu = -99999.;
+  LongestTrackContNumu = -99999;
+  TrackMomMethodNumu = -99999;
+
+  Ev_reco_nc = -99999.;
+
+  RecoLepEnNumu_range = -99999.;
+  RecoLepEnNumu_mcs_chi2 = -99999.;
+  RecoLepEnNumu_mcs_llhd = -99999.;
 
   mcevts_truth = -99999;
   mcevts_truthcry = -99999;
@@ -2938,6 +3031,26 @@ void dune::AnalysisTreeDataStruct::SetAddresses(
     CreateBranch("nuvtxz", nuvtxz, "nuvtxz[nnuvtx]/F");
     CreateBranch("nuvtxpdg", nuvtxpdg, "nuvtxpdg[nnuvtx]/S");
   }
+  
+  if (hasNuRecoInfo()){
+    CreateBranch("Ev_reco_nue", &Ev_reco_nue, "Ev_reco_nue/F");
+    CreateBranch("RecoLepEnNue", &RecoLepEnNue, "RecoLepEnNue/F");
+    CreateBranch("RecoHadEnNue", &RecoHadEnNue, "RecoHadEnNue/F");
+    CreateBranch("RecoMethodNue", &RecoMethodNue, "RecoMethodNue/F");
+
+    CreateBranch("Ev_reco_numu", &Ev_reco_numu, "Ev_reco_numu/F");
+    CreateBranch("RecoLepEnNumu", &RecoLepEnNumu, "RecoLepEnNumu/F");
+    CreateBranch("RecoHadEnNumu", &RecoHadEnNumu, "RecoHadEnNumu/F");
+    CreateBranch("RecoMethodNumu", &RecoMethodNumu, "RecoMethodNumu/F");
+    CreateBranch("LongestTrackContNumu", &LongestTrackContNumu, "LongestTrackContNumu/S");
+    CreateBranch("TrackMomMethodNumu", &TrackMomMethodNumu, "TrackMomMethodNumu/S");
+    CreateBranch("RecoLepEnNumu_range", &RecoLepEnNumu_range, "RecoLepEnNumu_range/F");
+    CreateBranch("RecoLepEnNumu_mcs_chi2", &RecoLepEnNumu_mcs_chi2, "RecoLepEnNumu_mcs_chi2/F");
+    CreateBranch("RecoLepEnNumu_mcs_llhd", &RecoLepEnNumu_mcs_llhd, "RecoLepEnNumu_mcs_llhd/F");
+
+    CreateBranch("Ev_reco_nc", &Ev_reco_nc, "Ev_reco_nc/F");
+
+  }
 
   if (hasClusterInfo()){
     CreateBranch("nclusters",&nclusters,"nclusters/S");
@@ -3363,6 +3476,12 @@ dune::AnalysisTree::AnalysisTree(fhicl::ParameterSet const& pset) :
   fCnnModuleLabel           (pset.get< std::string >("CnnModuleLabel")),
   fTrackModuleLabel         (pset.get< std::vector<std::string> >("TrackModuleLabel")),
   fVertexModuleLabel        (pset.get< std::vector<std::string> >("VertexModuleLabel")),
+  fEnergyRecoNueLabel       (pset.get< std::string >("EnergyRecoNueLabel")),
+  fEnergyRecoNumuLabel      (pset.get< std::string >("EnergyRecoNumuLabel")),
+  fEnergyRecoNumuRangeLabel (pset.get< std::string >("EnergyRecoNumuRangeLabel")),
+  fEnergyRecoNumuMCSChi2Label   (pset.get< std::string >("EnergyRecoNumuMCSChi2Label")),
+  fEnergyRecoNumuMCSLLHDLabel   (pset.get< std::string >("EnergyRecoNumuMCSLLHDLabel")),
+  fEnergyRecoNCLabel        (pset.get< std::string >("EnergyRecoNCLabel")),
   fShowerModuleLabel        (pset.get< std::vector<std::string> >("ShowerModuleLabel")),
   fCalorimetryModuleLabel   (pset.get< std::vector<std::string> >("CalorimetryModuleLabel")),
   fParticleIDModuleLabel    (pset.get< std::vector<std::string> >("ParticleIDModuleLabel")   ),
@@ -3384,6 +3503,7 @@ dune::AnalysisTree::AnalysisTree(fhicl::ParameterSet const& pset) :
   fSaveRawDigitInfo                 (pset.get< bool >("SaveRawDigitInfo", false)),
   fSaveTrackInfo	    (pset.get< bool >("SaveTrackInfo", false)),
   fSaveVertexInfo	    (pset.get< bool >("SaveVertexInfo", false)),
+  fSaveNuRecoEnergyInfo     (pset.get< bool >("SaveNuRecoEnergyInfo", false)),
   fSaveClusterInfo	    (pset.get< bool >("SaveClusterInfo", false)),
   fSavePandoraNuVertexInfo        (pset.get< bool >("SavePandoraNuVertexInfo", false)),
   fSaveFlashInfo            (pset.get< bool >("SaveFlashInfo", false)),
@@ -4078,6 +4198,63 @@ void dune::AnalysisTree::analyze(const art::Event& evt)
       }
     }
   } // save PandoraNuVertexInfo
+
+
+  if(fSaveNuRecoEnergyInfo){
+    auto ereconuein = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNueLabel);
+    auto ereconumuin = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNumuLabel);
+    auto ereconumuin_range = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNumuRangeLabel);
+    auto ereconumuin_mcs_chi2 = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNumuMCSChi2Label);
+    auto ereconumuin_mcs_llhd = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNumuMCSLLHDLabel);
+    auto ereconcin = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNCLabel);
+
+    if ( !ereconuein.failedToGet() )
+    {
+      fData->Ev_reco_nue          = ereconuein->fNuLorentzVector.E();
+      fData->RecoLepEnNue         = ereconuein->fLepLorentzVector.E();
+      fData->RecoHadEnNue         = ereconuein->fHadLorentzVector.E();
+      fData->RecoMethodNue        = ereconuein->recoMethodUsed;
+    }
+    else{
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNueLabel << std::endl;
+    }
+
+    // Get normal energy reco for numu
+    if ( !ereconumuin.failedToGet() )
+    {
+      fData->Ev_reco_numu         = ereconumuin->fNuLorentzVector.E();
+      fData->RecoLepEnNumu        = ereconumuin->fLepLorentzVector.E();
+      fData->RecoHadEnNumu        = ereconumuin->fHadLorentzVector.E();
+      fData->RecoMethodNumu       = ereconumuin->recoMethodUsed;
+      fData->LongestTrackContNumu = ereconumuin->longestTrackContained;
+      fData->TrackMomMethodNumu   = ereconumuin->trackMomMethod;
+    }
+    else
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNumuLabel << std::endl;
+
+    // Get lep. energy reconstruction using only range
+    if ( !ereconumuin_range.failedToGet() )
+      fData->RecoLepEnNumu_range  = ereconumuin_range->fLepLorentzVector.E();
+    else
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNumuRangeLabel << std::endl;
+
+    // Get lep. energy reconstruction using MCS Chi2
+    if ( !ereconumuin_mcs_chi2.failedToGet() )
+      fData->RecoLepEnNumu_mcs_chi2  = ereconumuin_mcs_chi2->fLepLorentzVector.E();
+    else
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNumuMCSChi2Label<< std::endl;
+
+    // Get lep. energy reconstruction using MCS LLHD
+    if ( !ereconumuin_mcs_llhd.failedToGet() )
+      fData->RecoLepEnNumu_mcs_llhd  = ereconumuin_mcs_llhd->fLepLorentzVector.E();
+    else
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNumuMCSChi2Label<< std::endl;
+
+    if ( !ereconcin.failedToGet() )
+      fData->Ev_reco_nc          = ereconcin->fNuLorentzVector.E();
+    else
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNCLabel << std::endl;
+  } // end fSaveNuRecoEnergyInfo
 
 
   if (fSaveClusterInfo){
