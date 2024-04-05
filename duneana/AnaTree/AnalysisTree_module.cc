@@ -80,6 +80,7 @@
 
 #include "larpandora/LArPandoraInterface/LArPandoraHelper.h"
 #include "duneopdet/OpticalDetector/OpFlashSort.h"
+#include "dunereco/FDSensOpt/FDSensOptData/EnergyRecoOutput.h"
 
 #include "lardata/ArtDataHelper/MVAReader.h"
 
@@ -484,9 +485,10 @@ namespace dune {
         tdPandoraNuVertex = 0x2000,
         tdPFParticle = 0x4000,
         tdCount = 0x8000,
-  tdProto = 0x10000,
-  tdSpacePoint = 0x20000,
-  tdCnn = 0x40000,
+        tdProto = 0x10000,
+        tdSpacePoint = 0x20000,
+        tdCnn = 0x40000,
+        tdnuReco = 0x80000,
         tdDefault = 0
         }; // DataBits_t
 
@@ -569,6 +571,26 @@ namespace dune {
     Float_t nuvtxy[kMaxVertices];
     Float_t nuvtxz[kMaxVertices];
     Short_t nuvtxpdg[kMaxVertices];
+
+    // Reconstructed neutrino energy
+    Float_t Ev_reco_nue;              // Nue reco. energy (GeV)
+    Float_t RecoLepEnNue;             // Lepton reco. energy (GeV)
+    Float_t RecoHadEnNue;             // Hadrionic reco. energy (GeV)
+    Short_t RecoMethodNue;              // Method used, 2 - highest charge + hadro. 3 - All hits
+
+    Float_t Ev_reco_numu;             // Numu reco. energy (GeV)
+    Float_t RecoLepEnNumu;            // Lepton reco. energy (GeV)
+    Float_t RecoHadEnNumu;            // Hadronic reco. energy (GeV)
+    Short_t RecoMethodNumu;             // Method used , 1 - longest track + hadro. 3 - All hits
+    Short_t LongestTrackContNumu;       // 1 - longest track is cointaned, 0 not contained, -1 not contained or missing track
+    Short_t TrackMomMethodNumu;         // Method use for track energy, 1 - momentum by range, 0 by Multi-coulomb scattering, -1 none.
+
+    Float_t Ev_reco_nc;               // Nu energy by all hits
+
+    Float_t RecoLepEnNumu_range;      // Lepton energy using range (GeV)
+    Float_t RecoHadEnNumu_range;      // Hadronic energy, keep this as by range you always have hadronic 
+    Float_t RecoLepEnNumu_mcs_chi2;   // Lepton energy using mcs chi2 method (GeV)
+    Float_t RecoLepEnNumu_mcs_llhd;   // Lepton energy using mcs chi2 method (GeV)
 
     //Cluster Information
     Short_t nclusters;				      //number of clusters in a given event
@@ -975,6 +997,9 @@ namespace dune {
     /// Returns whether we have Vertex data
     bool hasVertexInfo() const { return bits & tdVertex; }
 
+    /// Returns whether we have Vertex data
+    bool hasNuRecoInfo() const { return bits & tdnuReco; }
+
     /// Returns whether we have PFParticle data
     bool hasPFParticleInfo() const { return bits & tdPFParticle; }
 
@@ -1269,6 +1294,12 @@ namespace dune {
     std::vector<std::string> fTrackModuleLabel;
     std::string fPFParticleModuleLabel;
     std::vector<std::string> fVertexModuleLabel;
+    std::string fEnergyRecoNueLabel;
+    std::string fEnergyRecoNumuLabel;
+    std::string fEnergyRecoNumuRangeLabel;
+    std::string fEnergyRecoNumuMCSChi2Label;
+    std::string fEnergyRecoNumuMCSLLHDLabel;
+    std::string fEnergyRecoNCLabel;
     std::vector<std::string> fShowerModuleLabel;
     std::vector<std::string> fCalorimetryModuleLabel;
     std::vector<std::string> fParticleIDModuleLabel;
@@ -1290,6 +1321,7 @@ namespace dune {
     bool fSaveRawDigitInfo; ///whether to extract and save Raw Digit information
     bool fSaveTrackInfo; ///whether to extract and save Track information
     bool fSaveVertexInfo; ///whether to extract and save Vertex information
+    bool fSaveNuRecoEnergyInfo; ///whether to extract and save Neutrino reconstructed energy information. Call products first!
     bool fSaveClusterInfo;  ///whether to extract and save Cluster information
     bool fSavePandoraNuVertexInfo; ///whether to extract and save nu vertex information from Pandora
     bool fSaveFlashInfo;  ///whether to extract and save Flash information
@@ -1298,6 +1330,8 @@ namespace dune {
     bool fSavePFParticleInfo; ///whether to extract and save PFParticle information
     bool fSaveSpacePointSolverInfo; ///whether to extract and save SpacePointSolver information
     bool fSaveCnnInfo; ///whether to extract and save CNN information
+    
+    bool fAddGeantFlag; // whether to add or not `_geant` to geant outputs
 
     std::vector<std::string> fCosmicTaggerAssocLabel;
     std::vector<std::string> fContainmentTaggerAssocLabel;
@@ -1344,10 +1378,11 @@ namespace dune {
         fData->SetBits(AnalysisTreeDataStruct::tdPandoraNuVertex,!fSavePandoraNuVertexInfo);
         fData->SetBits(AnalysisTreeDataStruct::tdTrack,  !fSaveTrackInfo);
         fData->SetBits(AnalysisTreeDataStruct::tdVertex, !fSaveVertexInfo);
+        fData->SetBits(AnalysisTreeDataStruct::tdnuReco, !fSaveNuRecoEnergyInfo);
         fData->SetBits(AnalysisTreeDataStruct::tdAuxDet, !fSaveAuxDetInfo);
         fData->SetBits(AnalysisTreeDataStruct::tdPFParticle, !fSavePFParticleInfo);
-  fData->SetBits(AnalysisTreeDataStruct::tdSpacePoint, !fSaveSpacePointSolverInfo);
-  fData->SetBits(AnalysisTreeDataStruct::tdCnn, !fSaveCnnInfo);
+        fData->SetBits(AnalysisTreeDataStruct::tdSpacePoint, !fSaveSpacePointSolverInfo);
+        fData->SetBits(AnalysisTreeDataStruct::tdCnn, !fSaveCnnInfo);
       }
       else {
         fData->SetTrackers(GetNTrackers());
@@ -2353,6 +2388,26 @@ void dune::AnalysisTreeDataStruct::ClearLocalData() {
   std::fill(nuvtxy, nuvtxy + sizeof(nuvtxy)/sizeof(nuvtxy[0]), -99999.);
   std::fill(nuvtxz, nuvtxz + sizeof(nuvtxz)/sizeof(nuvtxz[0]), -99999.);
   std::fill(nuvtxpdg, nuvtxpdg + sizeof(nuvtxpdg)/sizeof(nuvtxpdg[0]), -99999);
+  
+  // Reconstructed neutrino energy
+  Ev_reco_nue = -9999.;
+  RecoLepEnNue = -9999.;
+  RecoHadEnNue = -9999.;
+  RecoMethodNue = -9999;
+
+  Ev_reco_numu = -9999.;
+  RecoLepEnNumu = -9999.;
+  RecoHadEnNumu = -9999.;
+  RecoMethodNumu = -9999;
+  LongestTrackContNumu = -9999;
+  TrackMomMethodNumu = -9999;
+
+  Ev_reco_nc = -99999.;
+
+  RecoLepEnNumu_range = -99999.;
+  RecoHadEnNumu_range = -99999.;
+  RecoLepEnNumu_mcs_chi2 = -99999.;
+  RecoLepEnNumu_mcs_llhd = -99999.;
 
   mcevts_truth = -99999;
   mcevts_truthcry = -99999;
@@ -2933,6 +2988,27 @@ void dune::AnalysisTreeDataStruct::SetAddresses(
     CreateBranch("nuvtxz", nuvtxz, "nuvtxz[nnuvtx]/F");
     CreateBranch("nuvtxpdg", nuvtxpdg, "nuvtxpdg[nnuvtx]/S");
   }
+  
+  if (hasNuRecoInfo()){
+    CreateBranch("Ev_reco_nue", &Ev_reco_nue, "Ev_reco_nue/F");
+    CreateBranch("RecoLepEnNue", &RecoLepEnNue, "RecoLepEnNue/F");
+    CreateBranch("RecoHadEnNue", &RecoHadEnNue, "RecoHadEnNue/F");
+    CreateBranch("RecoMethodNue", &RecoMethodNue, "RecoMethodNue/S");
+
+    CreateBranch("Ev_reco_numu", &Ev_reco_numu, "Ev_reco_numu/F");
+    CreateBranch("RecoLepEnNumu", &RecoLepEnNumu, "RecoLepEnNumu/F");
+    CreateBranch("RecoHadEnNumu", &RecoHadEnNumu, "RecoHadEnNumu/F");
+    CreateBranch("RecoMethodNumu", &RecoMethodNumu, "RecoMethodNumu/S");
+    CreateBranch("LongestTrackContNumu", &LongestTrackContNumu, "LongestTrackContNumu/S");
+    CreateBranch("TrackMomMethodNumu", &TrackMomMethodNumu, "TrackMomMethodNumu/S");
+    CreateBranch("RecoLepEnNumu_range", &RecoLepEnNumu_range, "RecoLepEnNumu_range/F");
+    CreateBranch("RecoHadEnNumu_range", &RecoHadEnNumu_range, "RecoHadEnNumu_range/F");
+    CreateBranch("RecoLepEnNumu_mcs_chi2", &RecoLepEnNumu_mcs_chi2, "RecoLepEnNumu_mcs_chi2/F");
+    CreateBranch("RecoLepEnNumu_mcs_llhd", &RecoLepEnNumu_mcs_llhd, "RecoLepEnNumu_mcs_llhd/F");
+
+    CreateBranch("Ev_reco_nc", &Ev_reco_nc, "Ev_reco_nc/F");
+
+  }
 
   if (hasClusterInfo()){
     CreateBranch("nclusters",&nclusters,"nclusters/S");
@@ -3121,78 +3197,85 @@ void dune::AnalysisTreeDataStruct::SetAddresses(
   }
 
   if (hasGeantInfo()){
-    CreateBranch("no_primaries",&no_primaries,"no_primaries/I");
-    CreateBranch("geant_list_size",&geant_list_size,"geant_list_size/I");
-    CreateBranch("geant_list_size_in_tpcAV",&geant_list_size_in_tpcAV,"geant_list_size_in_tpcAV/I");
-    CreateBranch("pdg",pdg,"pdg[geant_list_size]/I");
-    CreateBranch("status",status,"status[geant_list_size]/I");
-    CreateBranch("Mass",Mass,"Mass[geant_list_size]/F");
-    CreateBranch("Eng",Eng,"Eng[geant_list_size]/F");
-    CreateBranch("EndE",EndE,"EndE[geant_list_size]/F");
-    CreateBranch("Px",Px,"Px[geant_list_size]/F");
-    CreateBranch("Py",Py,"Py[geant_list_size]/F");
-    CreateBranch("Pz",Pz,"Pz[geant_list_size]/F");
-    CreateBranch("P",P,"P[geant_list_size]/F");
-    CreateBranch("StartPointx",StartPointx,"StartPointx[geant_list_size]/F");
-    CreateBranch("StartPointy",StartPointy,"StartPointy[geant_list_size]/F");
-    CreateBranch("StartPointz",StartPointz,"StartPointz[geant_list_size]/F");
-    CreateBranch("StartT",StartT,"StartT[geant_list_size]/F");
-    CreateBranch("EndPointx",EndPointx,"EndPointx[geant_list_size]/F");
-    CreateBranch("EndPointy",EndPointy,"EndPointy[geant_list_size]/F");
-    CreateBranch("EndPointz",EndPointz,"EndPointz[geant_list_size]/F");
-    CreateBranch("EndT",EndT,"EndT[geant_list_size]/F");
-    CreateBranch("theta",theta,"theta[geant_list_size]/F");
-    CreateBranch("phi",phi,"phi[geant_list_size]/F");
-    CreateBranch("theta_xz",theta_xz,"theta_xz[geant_list_size]/F");
-    CreateBranch("theta_yz",theta_yz,"theta_yz[geant_list_size]/F");
-    CreateBranch("pathlen",pathlen,"pathlen[geant_list_size]/F");
-    CreateBranch("inTPCActive",inTPCActive,"inTPCActive[geant_list_size]/I");
-    CreateBranch("StartPointx_tpcAV",StartPointx_tpcAV,"StartPointx_tpcAV[geant_list_size]/F");
-    CreateBranch("StartPointy_tpcAV",StartPointy_tpcAV,"StartPointy_tpcAV[geant_list_size]/F");
-    CreateBranch("StartPointz_tpcAV",StartPointz_tpcAV,"StartPointz_tpcAV[geant_list_size]/F");
-    CreateBranch("StartT_tpcAV",StartT_tpcAV,"StartT_tpcAV[geant_list_size]/F");
-    CreateBranch("StartE_tpcAV",StartE_tpcAV,"StartE_tpcAV[geant_list_size]/F");
-    CreateBranch("StartP_tpcAV",StartP_tpcAV,"StartP_tpcAV[geant_list_size]/F");
-    CreateBranch("StartPx_tpcAV",StartPx_tpcAV,"StartPx_tpcAV[geant_list_size]/F");
-    CreateBranch("StartPy_tpcAV",StartPy_tpcAV,"StartPy_tpcAV[geant_list_size]/F");
-    CreateBranch("StartPz_tpcAV",StartPz_tpcAV,"StartPz_tpcAV[geant_list_size]/F");
-    CreateBranch("EndPointx_tpcAV",EndPointx_tpcAV,"EndPointx_tpcAV[geant_list_size]/F");
-    CreateBranch("EndPointy_tpcAV",EndPointy_tpcAV,"EndPointy_tpcAV[geant_list_size]/F");
-    CreateBranch("EndPointz_tpcAV",EndPointz_tpcAV,"EndPointz_tpcAV[geant_list_size]/F");
-    CreateBranch("EndT_tpcAV",EndT_tpcAV,"EndT_tpcAV[geant_list_size]/F");
-    CreateBranch("EndE_tpcAV",EndE_tpcAV,"EndE_tpcAV[geant_list_size]/F");
-    CreateBranch("EndP_tpcAV",EndP_tpcAV,"EndP_tpcAV[geant_list_size]/F");
-    CreateBranch("EndPx_tpcAV",EndPx_tpcAV,"EndPx_tpcAV[geant_list_size]/F");
-    CreateBranch("EndPy_tpcAV",EndPy_tpcAV,"EndPy_tpcAV[geant_list_size]/F");
-    CreateBranch("EndPz_tpcAV",EndPz_tpcAV,"EndPz_tpcAV[geant_list_size]/F");
-    CreateBranch("pathlen_drifted",pathlen_drifted,"pathlen_drifted[geant_list_size]/F");
-    CreateBranch("inTPCDrifted",inTPCDrifted,"inTPCDrifted[geant_list_size]/I");
-    CreateBranch("StartPointx_drifted",StartPointx_drifted,"StartPointx_drifted[geant_list_size]/F");
-    CreateBranch("StartPointy_drifted",StartPointy_drifted,"StartPointy_drifted[geant_list_size]/F");
-    CreateBranch("StartPointz_drifted",StartPointz_drifted,"StartPointz_drifted[geant_list_size]/F");
-    CreateBranch("StartT_drifted",StartT_drifted,"StartT_drifted[geant_list_size]/F");
-    CreateBranch("StartE_drifted",StartE_drifted,"StartE_drifted[geant_list_size]/F");
-    CreateBranch("StartP_drifted",StartP_drifted,"StartP_drifted[geant_list_size]/F");
-    CreateBranch("StartPx_drifted",StartPx_drifted,"StartPx_drifted[geant_list_size]/F");
-    CreateBranch("StartPy_drifted",StartPy_drifted,"StartPy_drifted[geant_list_size]/F");
-    CreateBranch("StartPz_drifted",StartPz_drifted,"StartPz_drifted[geant_list_size]/F");
-    CreateBranch("EndPointx_drifted",EndPointx_drifted,"EndPointx_drifted[geant_list_size]/F");
-    CreateBranch("EndPointy_drifted",EndPointy_drifted,"EndPointy_drifted[geant_list_size]/F");
-    CreateBranch("EndPointz_drifted",EndPointz_drifted,"EndPointz_drifted[geant_list_size]/F");
-    CreateBranch("EndT_drifted",EndT_drifted,"EndT_drifted[geant_list_size]/F");
-    CreateBranch("EndE_drifted",EndE_drifted,"EndE_drifted[geant_list_size]/F");
-    CreateBranch("EndP_drifted",EndP_drifted,"EndP_drifted[geant_list_size]/F");
-    CreateBranch("EndPx_drifted",EndPx_drifted,"EndPx_drifted[geant_list_size]/F");
-    CreateBranch("EndPy_drifted",EndPy_drifted,"EndPy_drifted[geant_list_size]/F");
-    CreateBranch("EndPz_drifted",EndPz_drifted,"EndPz_drifted[geant_list_size]/F");
-    CreateBranch("NumberDaughters",NumberDaughters,"NumberDaughters[geant_list_size]/I");
-    CreateBranch("Mother",Mother,"Mother[geant_list_size]/I");
-    CreateBranch("TrackId",TrackId,"TrackId[geant_list_size]/I");
-    CreateBranch("MergedId", MergedId, "MergedId[geant_list_size]/I");
-    CreateBranch("origin", origin, "origin[geant_list_size]/I");
-    CreateBranch("MCTruthIndex", MCTruthIndex, "MCTruthIndex[geant_list_size]/I");
-    CreateBranch("process_primary",process_primary,"process_primary[geant_list_size]/I");
-    CreateBranch("processname", processname);
+    string sflag_geant = "";
+    if (fAddGeantFlag){
+      sflag_geant = "_geant"
+    }
+    const char *flag_geant = sflag_geant.c_str();
+    
+     
+    CreateBranch(Form("no_primaries%s", flag_geant),&no_primaries,"no_primaries/I");
+    CreateBranch(Form("geant_list_size%s", flag_geant),&geant_list_size,"geant_list_size/I");
+    CreateBranch(Form("geant_list_size_in_tpcAV%s", flag_geant),&geant_list_size_in_tpcAV,"geant_list_size_in_tpcAV/I");
+    CreateBranch(Form("pdg%s", flag_geant),pdg,"pdg[geant_list_size]/I");
+    CreateBranch(Form("status%s", flag_geant),status,"status[geant_list_size]/I");
+    CreateBranch(Form("Mass%s", flag_geant),Mass,"Mass[geant_list_size]/F");
+    CreateBranch(Form("Eng%s", flag_geant),Eng,"Eng[geant_list_size]/F");
+    CreateBranch(Form("EndE%s", flag_geant),EndE,"EndE[geant_list_size]/F");
+    CreateBranch(Form("Px%s", flag_geant),Px,"Px[geant_list_size]/F");
+    CreateBranch(Form("Py%s", flag_geant),Py,"Py[geant_list_size]/F");
+    CreateBranch(Form("Pz%s", flag_geant),Pz,"Pz[geant_list_size]/F");
+    CreateBranch(Form("P%s", flag_geant),P,"P[geant_list_size]/F");
+    CreateBranch(Form("StartPointx%s", flag_geant),StartPointx,"StartPointx[geant_list_size]/F");
+    CreateBranch(Form("StartPointy%s", flag_geant),StartPointy,"StartPointy[geant_list_size]/F");
+    CreateBranch(Form("StartPointz%s", flag_geant),StartPointz,"StartPointz[geant_list_size]/F");
+    CreateBranch(Form("StartT%s", flag_geant),StartT,"StartT[geant_list_size]/F");
+    CreateBranch(Form("EndPointx%s", flag_geant),EndPointx,"EndPointx[geant_list_size]/F");
+    CreateBranch(Form("EndPointy%s", flag_geant),EndPointy,"EndPointy[geant_list_size]/F");
+    CreateBranch(Form("EndPointz%s", flag_geant),EndPointz,"EndPointz[geant_list_size]/F");
+    CreateBranch(Form("EndT%s", flag_geant),EndT,"EndT[geant_list_size]/F");
+    CreateBranch(Form("theta%s", flag_geant),theta,"theta[geant_list_size]/F");
+    CreateBranch(Form("phi%s", flag_geant),phi,"phi[geant_list_size]/F");
+    CreateBranch(Form("theta_xz%s", flag_geant),theta_xz,"theta_xz[geant_list_size]/F");
+    CreateBranch(Form("theta_yz%s", flag_geant),theta_yz,"theta_yz[geant_list_size]/F");
+    CreateBranch(Form("pathlen%s", flag_geant),pathlen,"pathlen[geant_list_size]/F");
+    CreateBranch(Form("inTPCActive%s", flag_geant),inTPCActive,"inTPCActive[geant_list_size]/I");
+    CreateBranch(Form("StartPointx_tpcAV%s", flag_geant),StartPointx_tpcAV,"StartPointx_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("StartPointy_tpcAV%s", flag_geant),StartPointy_tpcAV,"StartPointy_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("StartPointz_tpcAV%s", flag_geant),StartPointz_tpcAV,"StartPointz_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("StartT_tpcAV%s", flag_geant),StartT_tpcAV,"StartT_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("StartE_tpcAV%s", flag_geant),StartE_tpcAV,"StartE_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("StartP_tpcAV%s", flag_geant),StartP_tpcAV,"StartP_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("StartPx_tpcAV%s", flag_geant),StartPx_tpcAV,"StartPx_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("StartPy_tpcAV%s", flag_geant),StartPy_tpcAV,"StartPy_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("StartPz_tpcAV%s", flag_geant),StartPz_tpcAV,"StartPz_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("EndPointx_tpcAV%s", flag_geant),EndPointx_tpcAV,"EndPointx_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("EndPointy_tpcAV%s", flag_geant),EndPointy_tpcAV,"EndPointy_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("EndPointz_tpcAV%s", flag_geant),EndPointz_tpcAV,"EndPointz_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("EndT_tpcAV%s", flag_geant),EndT_tpcAV,"EndT_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("EndE_tpcAV%s", flag_geant),EndE_tpcAV,"EndE_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("EndP_tpcAV%s", flag_geant),EndP_tpcAV,"EndP_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("EndPx_tpcAV%s", flag_geant),EndPx_tpcAV,"EndPx_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("EndPy_tpcAV%s", flag_geant),EndPy_tpcAV,"EndPy_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("EndPz_tpcAV%s", flag_geant),EndPz_tpcAV,"EndPz_tpcAV[geant_list_size]/F");
+    CreateBranch(Form("pathlen_drifted%s", flag_geant),pathlen_drifted,"pathlen_drifted[geant_list_size]/F");
+    CreateBranch(Form("inTPCDrifted%s", flag_geant),inTPCDrifted,"inTPCDrifted[geant_list_size]/I");
+    CreateBranch(Form("StartPointx_drifted%s", flag_geant),StartPointx_drifted,"StartPointx_drifted[geant_list_size]/F");
+    CreateBranch(Form("StartPointy_drifted%s", flag_geant),StartPointy_drifted,"StartPointy_drifted[geant_list_size]/F");
+    CreateBranch(Form("StartPointz_drifted%s", flag_geant),StartPointz_drifted,"StartPointz_drifted[geant_list_size]/F");
+    CreateBranch(Form("StartT_drifted%s", flag_geant),StartT_drifted,"StartT_drifted[geant_list_size]/F");
+    CreateBranch(Form("StartE_drifted%s", flag_geant),StartE_drifted,"StartE_drifted[geant_list_size]/F");
+    CreateBranch(Form("StartP_drifted%s", flag_geant),StartP_drifted,"StartP_drifted[geant_list_size]/F");
+    CreateBranch(Form("StartPx_drifted%s", flag_geant),StartPx_drifted,"StartPx_drifted[geant_list_size]/F");
+    CreateBranch(Form("StartPy_drifted%s", flag_geant),StartPy_drifted,"StartPy_drifted[geant_list_size]/F");
+    CreateBranch(Form("StartPz_drifted%s", flag_geant),StartPz_drifted,"StartPz_drifted[geant_list_size]/F");
+    CreateBranch(Form("EndPointx_drifted%s", flag_geant),EndPointx_drifted,"EndPointx_drifted[geant_list_size]/F");
+    CreateBranch(Form("EndPointy_drifted%s", flag_geant),EndPointy_drifted,"EndPointy_drifted[geant_list_size]/F");
+    CreateBranch(Form("EndPointz_drifted%s", flag_geant),EndPointz_drifted,"EndPointz_drifted[geant_list_size]/F");
+    CreateBranch(Form("EndT_drifted%s", flag_geant),EndT_drifted,"EndT_drifted[geant_list_size]/F");
+    CreateBranch(Form("EndE_drifted%s", flag_geant),EndE_drifted,"EndE_drifted[geant_list_size]/F");
+    CreateBranch(Form("EndP_drifted%s", flag_geant),EndP_drifted,"EndP_drifted[geant_list_size]/F");
+    CreateBranch(Form("EndPx_drifted%s", flag_geant),EndPx_drifted,"EndPx_drifted[geant_list_size]/F");
+    CreateBranch(Form("EndPy_drifted%s", flag_geant),EndPy_drifted,"EndPy_drifted[geant_list_size]/F");
+    CreateBranch(Form("EndPz_drifted%s", flag_geant),EndPz_drifted,"EndPz_drifted[geant_list_size]/F");
+    CreateBranch(Form("NumberDaughters%s", flag_geant),NumberDaughters,"NumberDaughters[geant_list_size]/I");
+    CreateBranch(Form("Mother%s", flag_geant),Mother,"Mother[geant_list_size]/I");
+    CreateBranch(Form("TrackId%s", flag_geant),TrackId,"TrackId[geant_list_size]/I");
+    CreateBranch(Form("MergedId%s", flag_geant), MergedId, "MergedId[geant_list_size]/I");
+    CreateBranch(Form("origin%s", flag_geant), origin, "origin[geant_list_size]/I");
+    CreateBranch(Form("MCTruthIndex%s", flag_geant), MCTruthIndex, "MCTruthIndex[geant_list_size]/I");
+    CreateBranch(Form("process_primary%s", flag_geant),process_primary,"process_primary[geant_list_size]/I");
+    CreateBranch(Form("processname%s", flag_geant), processname);
   }
 
   if (hasMCShowerInfo()){
@@ -3358,6 +3441,12 @@ dune::AnalysisTree::AnalysisTree(fhicl::ParameterSet const& pset) :
   fCnnModuleLabel           (pset.get< std::string >("CnnModuleLabel")),
   fTrackModuleLabel         (pset.get< std::vector<std::string> >("TrackModuleLabel")),
   fVertexModuleLabel        (pset.get< std::vector<std::string> >("VertexModuleLabel")),
+  fEnergyRecoNueLabel       (pset.get< std::string >("EnergyRecoNueLabel")),
+  fEnergyRecoNumuLabel      (pset.get< std::string >("EnergyRecoNumuLabel")),
+  fEnergyRecoNumuRangeLabel (pset.get< std::string >("EnergyRecoNumuRangeLabel")),
+  fEnergyRecoNumuMCSChi2Label   (pset.get< std::string >("EnergyRecoNumuMCSChi2Label")),
+  fEnergyRecoNumuMCSLLHDLabel   (pset.get< std::string >("EnergyRecoNumuMCSLLHDLabel")),
+  fEnergyRecoNCLabel        (pset.get< std::string >("EnergyRecoNCLabel")),
   fShowerModuleLabel        (pset.get< std::vector<std::string> >("ShowerModuleLabel")),
   fCalorimetryModuleLabel   (pset.get< std::vector<std::string> >("CalorimetryModuleLabel")),
   fParticleIDModuleLabel    (pset.get< std::vector<std::string> >("ParticleIDModuleLabel")   ),
@@ -3379,6 +3468,7 @@ dune::AnalysisTree::AnalysisTree(fhicl::ParameterSet const& pset) :
   fSaveRawDigitInfo                 (pset.get< bool >("SaveRawDigitInfo", false)),
   fSaveTrackInfo	    (pset.get< bool >("SaveTrackInfo", false)),
   fSaveVertexInfo	    (pset.get< bool >("SaveVertexInfo", false)),
+  fSaveNuRecoEnergyInfo     (pset.get< bool >("SaveNuRecoEnergyInfo", false)),
   fSaveClusterInfo	    (pset.get< bool >("SaveClusterInfo", false)),
   fSavePandoraNuVertexInfo        (pset.get< bool >("SavePandoraNuVertexInfo", false)),
   fSaveFlashInfo            (pset.get< bool >("SaveFlashInfo", false)),
@@ -3387,6 +3477,7 @@ dune::AnalysisTree::AnalysisTree(fhicl::ParameterSet const& pset) :
   fSavePFParticleInfo	    (pset.get< bool >("SavePFParticleInfo", false)),
   fSaveSpacePointSolverInfo (pset.get< bool >("SaveSpacePointSolverInfo", false)),
   fSaveCnnInfo              (pset.get< bool >("SaveCnnInfo", false)),
+  fAddGeantFlag             (pset.get< bool > ("AddGeantFlag", false)),
   fCosmicTaggerAssocLabel  (pset.get<std::vector< std::string > >("CosmicTaggerAssocLabel") ),
   fContainmentTaggerAssocLabel  (pset.get<std::vector< std::string > >("ContainmentTaggerAssocLabel") ),
   fFlashMatchAssocLabel (pset.get<std::vector< std::string > >("FlashMatchAssocLabel") ),
@@ -4072,6 +4163,66 @@ void dune::AnalysisTree::analyze(const art::Event& evt)
       }
     }
   } // save PandoraNuVertexInfo
+
+
+  if(fSaveNuRecoEnergyInfo){
+    auto ereconuein = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNueLabel);
+    auto ereconumuin = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNumuLabel);
+    auto ereconumuin_range = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNumuRangeLabel);
+    auto ereconumuin_mcs_chi2 = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNumuMCSChi2Label);
+    auto ereconumuin_mcs_llhd = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNumuMCSLLHDLabel);
+    auto ereconcin = evt.getHandle<dune::EnergyRecoOutput>(fEnergyRecoNCLabel);
+
+    if ( !ereconuein.failedToGet() )
+    {
+      fData->Ev_reco_nue          = ereconuein->fNuLorentzVector.E();
+      fData->RecoLepEnNue         = ereconuein->fLepLorentzVector.E();
+      fData->RecoHadEnNue         = ereconuein->fHadLorentzVector.E();
+      fData->RecoMethodNue        = ereconuein->recoMethodUsed;
+    }
+    else{
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNueLabel << std::endl;
+    }
+
+    // Get normal energy reco for numu
+    if ( !ereconumuin.failedToGet() )
+    {
+      fData->Ev_reco_numu         = ereconumuin->fNuLorentzVector.E();
+      fData->RecoLepEnNumu        = ereconumuin->fLepLorentzVector.E();
+      fData->RecoHadEnNumu        = ereconumuin->fHadLorentzVector.E();
+      fData->RecoMethodNumu       = ereconumuin->recoMethodUsed;
+      fData->LongestTrackContNumu = ereconumuin->longestTrackContained;
+      fData->TrackMomMethodNumu   = ereconumuin->trackMomMethod;
+    }
+    else
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNumuLabel << std::endl;
+
+    // Get lep. energy reconstruction using only range
+    if ( !ereconumuin_range.failedToGet() )
+    {
+      fData->RecoLepEnNumu_range  = ereconumuin_range->fLepLorentzVector.E();
+      fData->RecoHadEnNumu_range  = ereconumuin_range->fHadLorentzVector.E();
+    }
+    else
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNumuRangeLabel << std::endl;
+
+    // Get lep. energy reconstruction using MCS Chi2
+    if ( !ereconumuin_mcs_chi2.failedToGet() )
+      fData->RecoLepEnNumu_mcs_chi2  = ereconumuin_mcs_chi2->fLepLorentzVector.E();
+    else
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNumuMCSChi2Label<< std::endl;
+
+    // Get lep. energy reconstruction using MCS LLHD
+    if ( !ereconumuin_mcs_llhd.failedToGet() )
+      fData->RecoLepEnNumu_mcs_llhd  = ereconumuin_mcs_llhd->fLepLorentzVector.E();
+    else
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNumuMCSLLHDLabel<< std::endl;
+
+    if ( !ereconcin.failedToGet() )
+      fData->Ev_reco_nc          = ereconcin->fNuLorentzVector.E();
+    else
+      std::cerr << "Warning! No product found with label: " << fEnergyRecoNCLabel << std::endl;
+  } // end fSaveNuRecoEnergyInfo
 
 
   if (fSaveClusterInfo){
