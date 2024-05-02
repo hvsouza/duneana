@@ -60,6 +60,7 @@
 #include "larcorealg/Geometry/GeometryCore.h"
 #include "larsim/MCCheater/BackTrackerService.h"
 #include "larsim/MCCheater/ParticleInventoryService.h"
+#include "larsim/Utils/TruthMatchUtils.h"
 #include "lardataobj/RecoBase/Track.h"
 #include "lardataobj/RecoBase/Shower.h"
 #include "lardataobj/RecoBase/Cluster.h"
@@ -850,6 +851,7 @@ namespace dune {
     std::vector<Int_t>    MergedId; //geant track segments, which belong to the same particle, get the same
     std::vector<Int_t>    origin;   ////0: unknown, 1: cosmic, 2: neutrino, 3: supernova, 4: singles
     std::vector<Int_t>    MCTruthIndex; //this geant particle comes from the neutrino interaction of the _truth variables with this index
+    std::string sflag_geant = ""; // geant flag, controlled by fAddGeantFlag
 
     //MC Shower information
     Int_t     no_mcshowers;                         //number of MC Showers in this event.
@@ -1256,7 +1258,7 @@ namespace dune {
   private:
 
     void   HitsPurity(detinfo::DetectorClocksData const& clockData,
-                      std::vector< art::Ptr<recob::Hit> > const& hits, Int_t& trackid, Float_t& purity, double& maxe);
+                      std::vector< art::Ptr<recob::Hit> > const& hits, Int_t& trackid, Float_t& purity, Float_t& compleness, std::map<Int_t,Int_t> HitsToMCCounts);
     double length(const recob::Track& track);
     double driftedLength(detinfo::DetectorPropertiesData const& detProp,
                          const simb::MCParticle& part, TLorentzVector& start, TLorentzVector& end, unsigned int &starti, unsigned int &endi);
@@ -1332,6 +1334,7 @@ namespace dune {
     bool fSaveCnnInfo; ///whether to extract and save CNN information
     
     bool fAddGeantFlag; // whether to add or not `_geant` to geant outputs
+    bool fRollUpUnsavedIDs; //whether to squash energy deposits for non-saved G4 particles (e.g. shower secondaries) its saved ancestor particle
 
     std::vector<std::string> fCosmicTaggerAssocLabel;
     std::vector<std::string> fContainmentTaggerAssocLabel;
@@ -1474,14 +1477,16 @@ namespace dune {
     void FillShower(
                     AnalysisTreeDataStruct::ShowerDataStruct& showerData,
                     size_t iShower, recob::Shower const& showers, const bool fSavePFParticleInfo,
-            const std::map<Short_t, Short_t> &showerIDtoPFParticleIDMap
+            const std::map<Short_t, Short_t> &showerIDtoPFParticleIDMap,
+            const art::FindManyP<recob::PFParticle> fpfp
                     ) const;
 
     /// Stores the information of all showers into showerData
     void FillShowers(
                      AnalysisTreeDataStruct::ShowerDataStruct& showerData,
                      std::vector<recob::Shower> const& showers, const bool fSavePFParticleInfo,
-             const std::map<Short_t, Short_t> &showerIDtoPFParticleIDMap
+             const std::map<Short_t, Short_t> &showerIDtoPFParticleIDMap,
+             const art::FindManyP<recob::PFParticle> fpfp
                      ) const;
 
   }; // class dune::AnalysisTree
@@ -3275,6 +3280,81 @@ void dune::AnalysisTreeDataStruct::SetAddresses(
     CreateBranch(Form("origin%s", flag_geant), origin, "origin[geant_list_size]/I");
     CreateBranch(Form("MCTruthIndex%s", flag_geant), MCTruthIndex, "MCTruthIndex[geant_list_size]/I");
     CreateBranch(Form("process_primary%s", flag_geant),process_primary,"process_primary[geant_list_size]/I");
+=======
+    const char *flag_geant = sflag_geant.c_str();
+
+    CreateBranch(Form("no_primaries%s", flag_geant),&no_primaries,Form("no_primaries%s/I",flag_geant));
+    CreateBranch("geant_list_size",&geant_list_size,"geant_list_size/I");
+    CreateBranch("geant_list_size_in_tpcAV",&geant_list_size_in_tpcAV,"geant_list_size_in_tpcAV/I");
+    CreateBranch(Form("pdg%s", flag_geant),pdg,Form("pdg%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("status%s", flag_geant),status,Form("status%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("Mass%s", flag_geant),Mass,Form("Mass%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("Eng%s", flag_geant),Eng,Form("Eng%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndE%s", flag_geant),EndE,Form("EndE%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("Px%s", flag_geant),Px,Form("Px%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("Py%s", flag_geant),Py,Form("Py%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("Pz%s", flag_geant),Pz,Form("Pz%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("P%s", flag_geant),P,Form("P%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPointx%s", flag_geant),StartPointx,Form("StartPointx%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPointy%s", flag_geant),StartPointy,Form("StartPointy%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPointz%s", flag_geant),StartPointz,Form("StartPointz%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartT%s", flag_geant),StartT,Form("StartT%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPointx%s", flag_geant),EndPointx,Form("EndPointx%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPointy%s", flag_geant),EndPointy,Form("EndPointy%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPointz%s", flag_geant),EndPointz,Form("EndPointz%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndT%s", flag_geant),EndT,Form("EndT%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("theta%s", flag_geant),theta,Form("theta%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("phi%s", flag_geant),phi,Form("phi%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("theta_xz%s", flag_geant),theta_xz,Form("theta_xz%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("theta_yz%s", flag_geant),theta_yz,Form("theta_yz%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("pathlen%s", flag_geant),pathlen,Form("pathlen%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("inTPCActive%s", flag_geant),inTPCActive,Form("inTPCActive%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPointx_tpcAV%s", flag_geant),StartPointx_tpcAV,Form("StartPointx_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPointy_tpcAV%s", flag_geant),StartPointy_tpcAV,Form("StartPointy_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPointz_tpcAV%s", flag_geant),StartPointz_tpcAV,Form("StartPointz_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartT_tpcAV%s", flag_geant),StartT_tpcAV,Form("StartT_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartE_tpcAV%s", flag_geant),StartE_tpcAV,Form("StartE_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartP_tpcAV%s", flag_geant),StartP_tpcAV,Form("StartP_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPx_tpcAV%s", flag_geant),StartPx_tpcAV,Form("StartPx_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPy_tpcAV%s", flag_geant),StartPy_tpcAV,Form("StartPy_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPz_tpcAV%s", flag_geant),StartPz_tpcAV,Form("StartPz_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPointx_tpcAV%s", flag_geant),EndPointx_tpcAV,Form("EndPointx_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPointy_tpcAV%s", flag_geant),EndPointy_tpcAV,Form("EndPointy_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPointz_tpcAV%s", flag_geant),EndPointz_tpcAV,Form("EndPointz_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndT_tpcAV%s", flag_geant),EndT_tpcAV,Form("EndT_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndE_tpcAV%s", flag_geant),EndE_tpcAV,Form("EndE_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndP_tpcAV%s", flag_geant),EndP_tpcAV,Form("EndP_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPx_tpcAV%s", flag_geant),EndPx_tpcAV,Form("EndPx_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPy_tpcAV%s", flag_geant),EndPy_tpcAV,Form("EndPy_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPz_tpcAV%s", flag_geant),EndPz_tpcAV,Form("EndPz_tpcAV%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("pathlen_drifted%s", flag_geant),pathlen_drifted,Form("pathlen_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("inTPCDrifted%s", flag_geant),inTPCDrifted,Form("inTPCDrifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPointx_drifted%s", flag_geant),StartPointx_drifted,Form("StartPointx_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPointy_drifted%s", flag_geant),StartPointy_drifted,Form("StartPointy_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPointz_drifted%s", flag_geant),StartPointz_drifted,Form("StartPointz_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartT_drifted%s", flag_geant),StartT_drifted,Form("StartT_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartE_drifted%s", flag_geant),StartE_drifted,Form("StartE_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartP_drifted%s", flag_geant),StartP_drifted,Form("StartP_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPx_drifted%s", flag_geant),StartPx_drifted,Form("StartPx_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPy_drifted%s", flag_geant),StartPy_drifted,Form("StartPy_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("StartPz_drifted%s", flag_geant),StartPz_drifted,Form("StartPz_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPointx_drifted%s", flag_geant),EndPointx_drifted,Form("EndPointx_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPointy_drifted%s", flag_geant),EndPointy_drifted,Form("EndPointy_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPointz_drifted%s", flag_geant),EndPointz_drifted,Form("EndPointz_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndT_drifted%s", flag_geant),EndT_drifted,Form("EndT_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndE_drifted%s", flag_geant),EndE_drifted,Form("EndE_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndP_drifted%s", flag_geant),EndP_drifted,Form("EndP_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPx_drifted%s", flag_geant),EndPx_drifted,Form("EndPx_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPy_drifted%s", flag_geant),EndPy_drifted,Form("EndPy_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("EndPz_drifted%s", flag_geant),EndPz_drifted,Form("EndPz_drifted%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("NumberDaughters%s", flag_geant),NumberDaughters,Form("NumberDaughters%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("Mother%s", flag_geant),Mother,Form("Mother%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("TrackId%s", flag_geant),TrackId,Form("TrackId%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("MergedId%s", flag_geant), MergedId,Form("MergedId%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("origin%s", flag_geant), origin,Form("origin%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("MCTruthIndex%s", flag_geant), MCTruthIndex,Form("MCTruthIndex%s[geant_list_size]",flag_geant));
+    CreateBranch(Form("process_primary%s", flag_geant),process_primary,Form("process_primary%s[geant_list_size]",flag_geant));
+>>>>>>> 132c5f5 (Added Ereco to anatree)
     CreateBranch(Form("processname%s", flag_geant), processname);
   }
 
@@ -3478,6 +3558,7 @@ dune::AnalysisTree::AnalysisTree(fhicl::ParameterSet const& pset) :
   fSaveSpacePointSolverInfo (pset.get< bool >("SaveSpacePointSolverInfo", false)),
   fSaveCnnInfo              (pset.get< bool >("SaveCnnInfo", false)),
   fAddGeantFlag             (pset.get< bool > ("AddGeantFlag", false)),
+  fRollUpUnsavedIDs              (pset.get< bool >("RollUpUnsavedIDs", true)),
   fCosmicTaggerAssocLabel  (pset.get<std::vector< std::string > >("CosmicTaggerAssocLabel") ),
   fContainmentTaggerAssocLabel  (pset.get<std::vector< std::string > >("ContainmentTaggerAssocLabel") ),
   fFlashMatchAssocLabel (pset.get<std::vector< std::string > >("FlashMatchAssocLabel") ),
@@ -3814,6 +3895,7 @@ void dune::AnalysisTree::analyze(const art::Event& evt)
   if (fSaveSpacePointSolverInfo && spacepointListHandle.isValid())
     nSpacePoints = spacepointListHandle->size();
 
+
   CreateData(); // tracker data is created with default constructor
   if (fSaveGenieInfo)
     fData->ResizeGenie(nGeniePrimaries);
@@ -3822,7 +3904,11 @@ void dune::AnalysisTree::analyze(const art::Event& evt)
   if (fSaveProtoInfo)
     fData->ResizeProto(nProtoPrimaries);
   if (fSaveGeantInfo)
+  {
     fData->ResizeGEANT(nGEANTparticles);
+    if (fAddGeantFlag)
+      fData->sflag_geant = "_geant";
+  }
   if (fSaveMCShowerInfo)
     fData->ResizeMCShower(nMCShowers);
   if (fSaveMCTrackInfo)
@@ -4438,25 +4524,27 @@ void dune::AnalysisTree::analyze(const art::Event& evt)
 
       if (lar_pandora::LArPandoraHelper::IsTrack(pfparticlelist[i])){
         PFParticleData.pfp_isTrack[i] = 1;
-
-        // Set the track ID.
-        auto trackMapIter = pfParticleToTrackMap.find(pfparticlelist[i]);
-        if (trackMapIter != pfParticleToTrackMap.end()) {
-            lar_pandora::TrackVector pfParticleTracks = trackMapIter->second;
-
-            if (pfParticleTracks.size() > 1)
-              std::cerr << "Warning: there was more than one track found for PFParticle with ID " << pfparticlelist[i]->Self() << std::endl;
-
-            if (pfParticleTracks.size() > 0) {
-              PFParticleData.pfp_trackID[i] = pfParticleTracks.at(0)->ID();
-              trackIDtoPFParticleIDMap.insert(std::make_pair(pfParticleTracks.at(0)->ID(), pfparticlelist[i]->Self()));
-            }
-        }
-        else
-          std::cerr << "Warning: there was no track found for track-like PFParticle with ID " << pfparticlelist[i]->Self() << std::endl;
       }
       else
         PFParticleData.pfp_isTrack[i] = 0;
+
+      // Set the track ID.
+      auto trackMapIter = pfParticleToTrackMap.find(pfparticlelist[i]);
+      if (trackMapIter != pfParticleToTrackMap.end()) {
+          lar_pandora::TrackVector pfParticleTracks = trackMapIter->second;
+
+          if (pfParticleTracks.size() > 1)
+            std::cerr << "Warning: there was more than one track found for PFParticle with ID " << pfparticlelist[i]->Self() << std::endl;
+
+          if (pfParticleTracks.size() > 0) {
+            PFParticleData.pfp_trackID[i] = pfParticleTracks.at(0)->ID();
+            trackIDtoPFParticleIDMap.insert(std::make_pair(pfParticleTracks.at(0)->ID(), pfparticlelist[i]->Self()));
+          }
+      }
+      else
+      {
+        std::cerr << "Warning: there was no track found for track-like PFParticle with ID " << pfparticlelist[i]->Self() << std::endl;
+      }
 
       if (lar_pandora::LArPandoraHelper::IsShower(pfparticlelist[i])) {
         PFParticleData.pfp_isShower[i] = 1;
@@ -4505,7 +4593,10 @@ void dune::AnalysisTree::analyze(const art::Event& evt)
       art::Handle< std::vector<recob::Shower> > showerHandle = showerListHandle[iShowerAlgo];
 
       if (pShowers){
-        FillShowers(ShowerData, *pShowers, fSavePFParticleInfo, showerIDtoPFParticleIDMap);
+
+        art::FindManyP<recob::PFParticle> fpfp(showerHandle,evt,fShowerModuleLabel[0]);
+        FillShowers(ShowerData, *pShowers, fSavePFParticleInfo, showerIDtoPFParticleIDMap, fpfp);
+
 
         if(fMVAPIDShowerModuleLabel[iShowerAlgo].size()){
           art::FindOneP<anab::MVAPIDResult> fmvapid(showerHandle, evt, fMVAPIDShowerModuleLabel[iShowerAlgo]);
@@ -4528,6 +4619,22 @@ void dune::AnalysisTree::analyze(const art::Event& evt)
 
   //track information for multiple trackers
   if (fSaveTrackInfo) {
+
+    // Computing hit to MC association before enter the loop in each track
+    // This is used for the compleness of tracks
+    std::map<int,int> HitsToMCCounts;
+    std::vector<std::map<int,int>> HitsToMCCounts_Planes(kNplanes);
+    if(isMC){
+      for(size_t i = 0; i < hitlist.size(); i++)
+      {
+        TruthMatchUtils::G4ID hitID(TruthMatchUtils::TrueParticleID(clockData, hitlist.at(i), fRollUpUnsavedIDs));
+        ++HitsToMCCounts[hitID];
+        if (hitlist.at(i)->WireID().Plane < kNplanes){
+          ++HitsToMCCounts_Planes[hitlist.at(i)->WireID().Plane][hitID];
+        }
+      }
+    }
+
     for (unsigned int iTracker=0; iTracker < NTrackers; ++iTracker){
       AnalysisTreeDataStruct::TrackDataStruct& TrackerData = fData->GetTrackerData(iTracker);
 
@@ -4731,7 +4838,7 @@ void dune::AnalysisTree::analyze(const art::Event& evt)
         art::FindMany<anab::ParticleID> fmpid(trackListHandle[iTracker], evt, fParticleIDModuleLabel[iTracker]);
         if(fmpid.isValid()) {
           std::vector<const anab::ParticleID*> pids = fmpid.at(iTrk);
-          
+
           for (size_t ipid = 0; ipid < pids.size(); ++ipid){
             if (!pids[ipid]->PlaneID().isValid) continue;
             int planenum = pids[ipid]->PlaneID().Plane;
@@ -4838,51 +4945,31 @@ void dune::AnalysisTree::analyze(const art::Event& evt)
           std::vector< art::Ptr<recob::Hit> > hits[kNplanes];
 
           for(size_t ah = 0; ah < allHits.size(); ++ah){
-            if (/* allHits[ah]->WireID().Plane >= 0 && */ // always true
-                allHits[ah]->WireID().Plane <  3){
+            if (allHits[ah]->WireID().Plane < kNplanes){
               hits[allHits[ah]->WireID().Plane].push_back(allHits[ah]);
             }
           }
-          for (size_t ipl = 0; ipl < 3; ++ipl){
-            double maxe = 0;
-            HitsPurity(clockData, hits[ipl],TrackerData.trkidtruth[iTrk][ipl],TrackerData.trkpurtruth[iTrk][ipl],maxe);
-            //std::cout<<"\n"<<iTracker<<"\t"<<iTrk<<"\t"<<ipl<<"\t"<<trkidtruth[iTracker][iTrk][ipl]<<"\t"<<trkpurtruth[iTracker][iTrk][ipl]<<"\t"<<maxe;
+
+
+          // Computes g4 id corresponding to track using TruthMatchUtils for each plane
+          for (size_t ipl = 0; ipl < kNplanes; ++ipl){
+            HitsPurity(clockData, hits[ipl], TrackerData.trkidtruth[iTrk][ipl],TrackerData.trkpurtruth[iTrk][ipl], TrackerData.trkefftruth[iTrk][ipl], HitsToMCCounts_Planes[ipl]);
             if (TrackerData.trkidtruth[iTrk][ipl]>0){
               const art::Ptr<simb::MCTruth> mc = pi_serv->TrackIdToMCTruth_P(TrackerData.trkidtruth[iTrk][ipl]);
               TrackerData.trkorigin[iTrk][ipl] = mc->Origin();
               const simb::MCParticle *particle = pi_serv->TrackIdToParticle_P(TrackerData.trkidtruth[iTrk][ipl]);
-              double tote = 0;
               const std::vector<const sim::IDE*> vide=bt_serv->TrackIdToSimIDEs_Ps(TrackerData.trkidtruth[iTrk][ipl]);
-              for (auto ide: vide) {
-                tote += ide->energy;
-              }
               TrackerData.trkpdgtruth[iTrk][ipl] = particle->PdgCode();
-              TrackerData.trkefftruth[iTrk][ipl] = maxe/(tote/kNplanes); //tote include both induction and collection energies
-              //std::cout<<"\n"<<trkpdgtruth[iTracker][iTrk][ipl]<<"\t"<<trkefftruth[iTracker][iTrk][ipl];
             }
           }
 
-          double maxe = 0;
-          HitsPurity(clockData, allHits,TrackerData.trkg4id[iTrk],TrackerData.trkpurity[iTrk],maxe);
+          // Computes g4 id corresponding to track using TruthMatchUtils
+          HitsPurity(clockData, allHits,TrackerData.trkg4id[iTrk],TrackerData.trkpurity[iTrk], TrackerData.trkcompleteness[iTrk], HitsToMCCounts);
           if (TrackerData.trkg4id[iTrk]>0){
             const art::Ptr<simb::MCTruth> mc = pi_serv->TrackIdToMCTruth_P(TrackerData.trkg4id[iTrk]);
             TrackerData.trkorig[iTrk] = mc->Origin();
           }
-          if (!allHits.empty() and allHits[0]) {
-            float totenergy = 0.;
-            auto const& all_hits = allHits[0].parentAs<std::vector>();
-            for(recob::Hit const& hit : all_hits) {
-                std::vector<sim::IDE*> ides;
-                //bt_serv->HitToSimIDEs(hit,ides);
-                std::vector<sim::TrackIDE> eveIDs = bt_serv->HitToEveTrackIDEs(clockData, hit);
 
-                for(size_t e = 0; e < eveIDs.size(); ++e){
-                  //std::cout<<h<<" "<<e<<" "<<eveIDs[e].trackID<<" "<<eveIDs[e].energy<<" "<<eveIDs[e].energyFrac<<std::endl;
-                  if (eveIDs[e].trackID==TrackerData.trkg4id[iTrk]) totenergy += eveIDs[e].energy;
-                }
-            }
-            if (totenergy) TrackerData.trkcompleteness[iTrk] = maxe/totenergy;
-          }
         }//end if (isMC)
       }//end loop over track
     }//end loop over track module labels
@@ -5541,10 +5628,13 @@ void dune::AnalysisTree::analyze(const art::Event& evt)
 
 void dune::AnalysisTree::FillShower( AnalysisTreeDataStruct::ShowerDataStruct& showerData, size_t iShower,
                                      recob::Shower const& shower, const bool fSavePFParticleInfo,
-                                     const std::map<Short_t, Short_t> &showerIDtoPFParticleIDMap
+                                     const std::map<Short_t, Short_t> &showerIDtoPFParticleIDMap,
+                                     const art::FindManyP<recob::PFParticle> fpfp
                                      ) const {
 
-  showerData.showerID[iShower]        = shower.ID();
+
+
+  showerData.showerID[iShower]        = iShower;
   showerData.shwr_bestplane[iShower]  = shower.best_plane();
   showerData.shwr_length[iShower]     = shower.Length();
 
@@ -5559,14 +5649,22 @@ void dune::AnalysisTree::FillShower( AnalysisTreeDataStruct::ShowerDataStruct& s
   showerData.shwr_startz[iShower]     = pos_start.Z();
 
   if (fSavePFParticleInfo) {
-    auto mapIter = showerIDtoPFParticleIDMap.find(shower.ID());
-    if (mapIter != showerIDtoPFParticleIDMap.end()) {
-      // This vertex has a corresponding PFParticle.
-      showerData.shwr_hasPFParticle[iShower] = 1;
-      showerData.shwr_PFParticleID[iShower] = mapIter->second;
+    if(!fpfp.isValid())
+    {
+      auto mapIter = showerIDtoPFParticleIDMap.find(shower.ID());
+      if (mapIter != showerIDtoPFParticleIDMap.end()) {
+        // This vertex has a corresponding PFParticle.
+        showerData.shwr_hasPFParticle[iShower] = 1;
+        showerData.shwr_PFParticleID[iShower] = mapIter->second;
+      }
+      else
+        showerData.shwr_hasPFParticle[iShower] = 0;
     }
-    else
-      showerData.shwr_hasPFParticle[iShower] = 0;
+    else{
+      auto pfp = fpfp.at(iShower);
+      showerData.shwr_hasPFParticle[iShower] = 1;
+      showerData.shwr_PFParticleID[iShower] = pfp[0]->Self();
+    }
   }
 
   if (shower.Energy().size() == kNplanes)
@@ -5584,7 +5682,8 @@ void dune::AnalysisTree::FillShower( AnalysisTreeDataStruct::ShowerDataStruct& s
 
 void dune::AnalysisTree::FillShowers( AnalysisTreeDataStruct::ShowerDataStruct& showerData,
                                       std::vector<recob::Shower> const& showers, const bool fSavePFParticleInfo,
-                                      const std::map<Short_t, Short_t> &showerIDtoPFParticleIDMap
+                                      const std::map<Short_t, Short_t> &showerIDtoPFParticleIDMap,
+                                      const art::FindManyP<recob::PFParticle> fpfp
                                       ) const {
 
   const size_t NShowers = showers.size();
@@ -5617,50 +5716,43 @@ void dune::AnalysisTree::FillShowers( AnalysisTreeDataStruct::ShowerDataStruct& 
   showerData.nshowers = (Short_t) NShowers;
 
   // set all the showers one by one
-  for (size_t i = 0; i < NShowers; ++i) FillShower(showerData, i, showers[i], fSavePFParticleInfo, showerIDtoPFParticleIDMap);
+  for (size_t i = 0; i < NShowers; ++i)FillShower(showerData, i, showers[i], fSavePFParticleInfo, showerIDtoPFParticleIDMap,fpfp);
 
 } // dune::AnalysisTree::FillShowers()
 
 
 
 void dune::AnalysisTree::HitsPurity(detinfo::DetectorClocksData const& clockData,
-                                    std::vector< art::Ptr<recob::Hit> > const& hits, Int_t& trackid, Float_t& purity, double& maxe){
+                                    std::vector< art::Ptr<recob::Hit> > const& hits, Int_t& trackid, Float_t& purity, Float_t& completeness, std::map<Int_t,Int_t> HitsToMCCounts){
 
   trackid = -1;
   purity = -1;
+  completeness = -1;
 
-  art::ServiceHandle<cheat::BackTrackerService> bt_serv;
+  TruthMatchUtils::G4ID g4ID(TruthMatchUtils::TrueParticleIDFromTotalRecoHits(clockData, hits,fRollUpUnsavedIDs));
 
-  std::map<int,double> trkide;
+  if (TruthMatchUtils::Valid(g4ID)){
+    trackid = g4ID;
 
-  for(size_t h = 0; h < hits.size(); ++h){
+    Float_t correct_hits(0.f); // (for complenetess) Count number of hits from the MCParticle with g4ID
 
-    art::Ptr<recob::Hit> hit = hits[h];
-    std::vector<sim::IDE> ides;
-    //bt_serv->HitToSimIDEs(hit,ides);
-    std::vector<sim::TrackIDE> eveIDs = bt_serv->HitToEveTrackIDEs(clockData, hit);
-
-    for(size_t e = 0; e < eveIDs.size(); ++e){
-      //std::cout<<h<<" "<<e<<" "<<eveIDs[e].trackID<<" "<<eveIDs[e].energy<<" "<<eveIDs[e].energyFrac<<std::endl;
-      trkide[eveIDs[e].trackID] += eveIDs[e].energy;
+    // Compute purity using TruthMatchUtils
+    for(size_t i = 0; i < hits.size(); ++i)
+    {
+      TruthMatchUtils::G4ID hitID(TruthMatchUtils::TrueParticleID(clockData, hits.at(i), fRollUpUnsavedIDs));
+      if (hitID == g4ID)
+      {
+        purity+=1.f;
+        correct_hits+=1.f;
+      }
     }
-  }
+    if (hits.size() > 0)
+      purity /= hits.size();
 
-  maxe = -1;
-  double tote = 0;
-  for (std::map<int,double>::iterator ii = trkide.begin(); ii!=trkide.end(); ++ii){
-    tote += ii->second;
-    if ((ii->second)>maxe){
-      maxe = ii->second;
-      trackid = ii->first;
-    }
-  }
-
-  //std::cout << "the total energy of this reco track is: " << tote << std::endl;
-
-  if (tote>0){
-    purity = maxe/tote;
-  }
+    // Compute completeness using TruthMatchUtils counts
+    auto allhitstruth = HitsToMCCounts.find(g4ID)->second;
+    completeness = correct_hits/allhitstruth;
+  }   
 }
 
 // Calculate distance to boundary.

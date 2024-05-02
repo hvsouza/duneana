@@ -69,6 +69,7 @@ dune35t_analysistree:
  SavePFParticleInfo:       true
  G4minE:                   -1
  AddGeantFlag:             false # If set to true, geant information from `SaveGeantInfo` will be saved with an extra `_geant`
+ RollUpUnsavedIDs:         true
 }
 
 protodune_analysistree:   @local::dune35t_analysistree
