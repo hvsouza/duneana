@@ -1,0 +1,23 @@
+#include "calorimetry_dune10kt.fcl"
+#include "particleselectionalg_dune.fcl"
+
+BEGIN_PROLOG
+
+
+standard_pida_ana:
+{
+  CalorimetryAlg:          @local::dune10kt_calorimetryalgmc
+  module_type: "PIDASelectionAna"
+
+  ParticleSelectionAlgNumu: @local::dune10kt_particleselectionalg
+  ParticleSelectionAlgNue: @local::dune10kt_particleselectionalg
+  ParticleSelectionAlgNC: @local::dune10kt_particleselectionalg
+}
+
+standard_pida_ana.ParticleSelectionAlgNumu.MinPionTrkLength: 3.5
+standard_pida_ana.ParticleSelectionAlgNue.MinPionTrkLength: 20
+standard_pida_ana.ParticleSelectionAlgNC.MinPionTrkLength:  20
+
+
+
+END_PROLOG
