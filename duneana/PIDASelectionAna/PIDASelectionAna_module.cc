@@ -16,6 +16,7 @@
 #include "art/Framework/Services/Registry/ServiceHandle.h"
 #include "canvas/Utilities/InputTag.h"
 #include "canvas/Persistency/Common/Ptr.h"
+#include "canvas/Persistency/Common/FindOne.h"
 #include "canvas/Persistency/Common/FindMany.h"
 #include "canvas/Persistency/Common/FindManyP.h"
 #include "canvas/Persistency/Common/PtrVector.h"
@@ -158,11 +159,13 @@ class pid::PIDASelectionAna : public art::EDAnalyzer {
     Float_t RecoLepEnNue;             // Lepton reco. energy (GeV)
     Float_t RecoHadEnNue;             // Hadrionic reco. energy (GeV)
     Short_t RecoMethodNue;              // Method used, 2 - highest charge + hadro. 3 - All hits
+    Short_t RecoLepIdNue;
 
     Float_t Ev_reco_numu;             // Numu reco. energy (GeV)
     Float_t RecoLepEnNumu;            // Lepton reco. energy (GeV)
     Float_t RecoHadEnNumu;            // Hadronic reco. energy (GeV)
     Short_t RecoMethodNumu;             // Method used , 1 - longest track + hadro. 3 - All hits
+    Short_t RecoLepIdNumu;
     Short_t LongestTrackContNumu;       // 1 - longest track is cointaned, 0 not contained, -1 not contained or missing track
     Short_t TrackMomMethodNumu;         // Method use for track energy, 1 - momentum by range, 0 by Multi-coulomb scattering, -1 none.
 
@@ -419,6 +422,12 @@ void pid::PIDASelectionAna::analyze(art::Event const& evt)
     RecoLepEnNue         = ereconuein->fLepLorentzVector.E();
     RecoHadEnNue         = ereconuein->fHadLorentzVector.E();
     RecoMethodNue        = ereconuein->recoMethodUsed;
+    auto assnsR = evt.getHandle<art::Assns<dune::EnergyRecoOutput, recob::Shower>>("energyreconue");
+    if (assnsR.isValid() && assnsR->size()>0){
+      const art::Ptr<recob::Shower> lepSelected = assnsR->at(0).second;
+      art::Ptr< recob::PFParticle > tpfp = GetAssocProduct<recob::PFParticle>(lepSelected, evt, fShowerModuleLabel, fShowerModuleLabel);
+      RecoLepIdNue = tpfp->Self();
+    }
   }
   else{
     std::cerr << "Warning! No product found with label: " << "energyreconue" << std::endl;
@@ -433,6 +442,13 @@ void pid::PIDASelectionAna::analyze(art::Event const& evt)
     RecoMethodNumu       = ereconumuin->recoMethodUsed;
     LongestTrackContNumu = ereconumuin->longestTrackContained;
     TrackMomMethodNumu   = ereconumuin->trackMomMethod;
+    auto assnsR = evt.getHandle<art::Assns<dune::EnergyRecoOutput, recob::Track>>("energyreconumu");
+    if (assnsR.isValid() && assnsR->size()>0){
+      const art::Ptr<recob::Track> lepSelected = assnsR->at(0).second;
+      art::Ptr< recob::PFParticle > tpfp = GetAssocProduct<recob::PFParticle>(lepSelected, evt, fTrackModuleLabel, fTrackModuleLabel);
+      RecoLepIdNumu = tpfp->Self();
+    }
+
   }
   else
     std::cerr << "Warning! No product found with label: " << "energyreconumu" << std::endl;
@@ -539,7 +555,7 @@ void pid::PIDASelectionAna::analyze(art::Event const& evt)
   
 
   if (nutype == NuType::Numu){
-    std::optional<art::Ptr<recob::Track>> leptrk = psel->GetLongestTrackPID(evt);
+    std::optional<art::Ptr<recob::Track>> leptrk = psel->GetLongestTrackPID(evt, false);
     (void)leptrk;
   }
   else if (nutype == NuType::Nue){
@@ -919,11 +935,13 @@ void pid::PIDASelectionAna::beginJob()
     fTree->Branch("RecoLepEnNue", &RecoLepEnNue);
     fTree->Branch("RecoHadEnNue", &RecoHadEnNue);
     fTree->Branch("RecoMethodNue", &RecoMethodNue);
+    fTree->Branch("RecoLepIdNue", &RecoLepIdNue);
 
     fTree->Branch("Ev_reco_numu", &Ev_reco_numu);
     fTree->Branch("RecoLepEnNumu", &RecoLepEnNumu);
     fTree->Branch("RecoHadEnNumu", &RecoHadEnNumu);
     fTree->Branch("RecoMethodNumu", &RecoMethodNumu);
+    fTree->Branch("RecoLepIdNumu", &RecoLepIdNumu);
     fTree->Branch("LongestTrackContNumu", &LongestTrackContNumu);
     fTree->Branch("TrackMomMethodNumu", &TrackMomMethodNumu);
 
@@ -940,17 +958,17 @@ void pid::PIDASelectionAna::beginJob()
     fTree->Branch("trkstartdcosx", &trkstartdcosx);
     fTree->Branch("trkstartdcosy", &trkstartdcosy);
     fTree->Branch("trkstartdcosz", &trkstartdcosz);
-    fTree->Branch("trkpurity", &trkpurity);
-    fTree->Branch("trkcompleteness", &trkcompleteness);
-    fTree->Branch("trkg4id", &trkg4id);
-    fTree->Branch("trkg4pdg", &trkg4pdg);
-    fTree->Branch("trkg4en", &trkg4en);
-    fTree->Branch("trkg4mass", &trkg4mass);
-    fTree->Branch("trkg4mother", &trkg4mother);
+    // fTree->Branch("trkpurity", &trkpurity);
+    // fTree->Branch("trkcompleteness", &trkcompleteness);
+    // fTree->Branch("trkg4id", &trkg4id);
+    // fTree->Branch("trkg4pdg", &trkg4pdg);
+    // fTree->Branch("trkg4en", &trkg4en);
+    // fTree->Branch("trkg4mass", &trkg4mass);
+    // fTree->Branch("trkg4mother", &trkg4mother);
 
-    fTree->Branch("trknhits", &trknhits);
-    fTree->Branch("trknhitsmatch", &trknhitsmatch);
-    fTree->Branch("trkg4id_planes", &trkg4id_planes);
+    // fTree->Branch("trknhits", &trknhits);
+    // fTree->Branch("trknhitsmatch", &trknhitsmatch);
+    // fTree->Branch("trkg4id_planes", &trkg4id_planes);
     fTree->Branch("trkg4pdg_planes", &trkg4pdg_planes);
     fTree->Branch("trkg4en_planes", &trkg4en_planes);
     fTree->Branch("trkg4mass_planes", &trkg4mass_planes);
@@ -958,14 +976,14 @@ void pid::PIDASelectionAna::beginJob()
     fTree->Branch("trkpurity_planes", &trkpurity_planes);
     fTree->Branch("trkcompleteness_planes", &trkcompleteness_planes);
     fTree->Branch("trknhits_planes", &trknhits_planes);
-    fTree->Branch("trknhitsmatch_planes", &trknhitsmatch_planes);
+    // fTree->Branch("trknhitsmatch_planes", &trknhitsmatch_planes);
     fTree->Branch("trkbestplane", &trkbestplane);
     fTree->Branch("trklen", &trklen);
     fTree->Branch("trkmomrange_pr", &trkmomrange_pr);
     fTree->Branch("trkmomrange_mu", &trkmomrange_mu);
     fTree->Branch("trkmomllhd", &trkmomllhd);
     fTree->Branch("trkmomchi2", &trkmomchi2);
-    fTree->Branch("trkcalo_planes", &trkcalo_planes);
+    // fTree->Branch("trkcalo_planes", &trkcalo_planes);
     // fTree->Branch("trktotalen_planes", &trktotalen_planes);
     // fTree->Branch("trkpartialen_planes", &trkpartialen_planes);
     fTree->Branch("trkIsContained", &trkIsContained);
@@ -980,8 +998,8 @@ void pid::PIDASelectionAna::beginJob()
     // fTree->Branch("trkshwstartz", &trkshwstartz);
     fTree->Branch("trkshwlen", &trkshwlen);
 
-    fTree->Branch("allcalo_planes", &allcalo_planes);
-    fTree->Branch("nallhits_planes", &nallhits_planes);
+    // fTree->Branch("allcalo_planes", &allcalo_planes);
+    // fTree->Branch("nallhits_planes", &nallhits_planes);
 
     // fTree->Branch("trkpidchi2ndf", &trkpidchi2ndf);
     // fTree->Branch("trkpidchi2pr", &trkpidchi2pr);
@@ -1076,11 +1094,13 @@ void pid::PIDASelectionAna::reset(){
     RecoLepEnNue = -9999.;
     RecoHadEnNue = -9999.;
     RecoMethodNue = -9999;
+    RecoLepIdNue = -9999;
 
     Ev_reco_numu = -9999.;
     RecoLepEnNumu = -9999.;
     RecoHadEnNumu = -9999.;
     RecoMethodNumu = -9999;
+    RecoLepIdNumu = -9999;
     LongestTrackContNumu = -9999;
     TrackMomMethodNumu = -9999;
 
