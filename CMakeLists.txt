@@ -25,6 +25,8 @@ cet_set_compiler_flags(DIAGS CAUTIOUS
 
 cet_report_compiler_flags()
 
+include_directories("${dunedetdataformats_DIR}/../../../include")
+
 find_package( nufinder REQUIRED )
 find_package( larfinder REQUIRED )
 find_package( art REQUIRED ) 

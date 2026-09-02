@@ -21,12 +21,34 @@
 #include <TTree.h>
 
 #include <canvas/Persistency/Common/Ptr.h>
+#include <lardataobj/RecoBase/OpFlash.h>
+#include <lardataobj/RecoBase/OpHit.h>
 #include <lardataobj/RecoBase/PFParticle.h>
 #include <lardataobj/RecoBase/Track.h>
 #include <dunereco/AnaUtils/DUNEAnaTrackUtils.h>
 #include <dunereco/AnaUtils/DUNEAnaPFParticleUtils.h>
+#include "detdataformats/trigger/TriggerCandidateData2.hpp"
+#include "lardataobj/RecoBase/TrackingTypes.h"
 
 #include <string>
+#include <vector>
+
+#pragma GCC diagnostic ignored "-Wunused-variable"
+
+struct edges {
+    double xmin, xmax;
+    double ymin, ymax;
+    double zmin, zmax;
+};
+
+inline std::vector<edges> CRT_top_triggers = {
+    {200, 320, 310, 340, 80, 214}, //nTCO CRT
+    {200, 320, -340, -310, 80, 214} //TCO CRT - top position
+};
+inline std::vector<edges> CRT_bot_triggers = {
+    {140, 320, 310, 340, 80, 214}, //nTCO CRT
+    {-226, -106, -340, -310, 80, 214} //TCO CRT - bottom position
+};
 
 namespace dune {
   class XeDopCRT;
@@ -48,17 +70,26 @@ public:
   // Required functions.
   void analyze(art::Event const& evt) override;
 
+  bool checkInBox(const recob::tracking::Point_t& point, const edges& box) {
+    return (point.X() >= box.xmin && point.X() <= box.xmax) &&
+           (point.Y() >= box.ymin && point.Y() <= box.ymax) &&
+           (point.Z() >= box.zmin && point.Z() <= box.zmax);
+  }
+
   // Selected optional functions.
   void beginJob() override;
   void endJob() override;
+
 
 private:
 
 
   TTree *t1 = nullptr;
 
-  Int_t fEvent;
+  Int_t run;
+  Int_t event;
   Int_t ntracks;
+  Int_t nselected;
   std::vector<Float_t> trkstartx;
   std::vector<Float_t> trkstarty;
   std::vector<Float_t> trkstartz;
@@ -67,13 +98,24 @@ private:
   std::vector<Float_t> trkendz;
   std::vector<Float_t> trklen;
   std::vector<bool> trkIsTrack;
+  std::vector<bool> trkIsSelected;
   std::vector<Float_t> trkstartdcosx;
   std::vector<Float_t> trkstartdcosy;
   std::vector<Float_t> trkstartdcosz;
 
+  std::vector<int> opchannel;
+  std::vector<double> pe;
+  std::vector<double> time;
+  std::vector<double> amplitude;
+  std::vector<int> flashid;
+
+
 
   std::string fTrackModuleLabel = "pandoraTrack";
   std::string fPFParticleModuleLabel = "pandora";
+
+  std::string fFlashModuleLabel = "opflash";
+  std::string fOpHitModuleLabel = "ophit";
 
   void reset();
 
@@ -91,21 +133,47 @@ dune::XeDopCRT::XeDopCRT(fhicl::ParameterSet const& p)
 void dune::XeDopCRT::analyze(art::Event const& evt)
 {
 
-  fEvent = evt.id().event();
-  
-  std::vector<art::Ptr<recob::Track>> pTracks;
+  run = evt.run();
+  event = evt.id().event();
 
+  std::string fTriggerLabel = "triggerrawdecoder:daq";
+  std::vector<art::Ptr<dunedaq::trgdataformats2::TriggerCandidateData>> pTrigger;
+  auto pTriggerHandle = evt.getHandle< std::vector<dunedaq::trgdataformats2::TriggerCandidateData> >(fTriggerLabel);
+  if (!pTriggerHandle.isValid()) {
+      std::cout << "Failed to find trigger candidate data product with label " << fTriggerLabel << std::endl;
+      reset();
+      throw std::runtime_error("Trigger candidate data product not found");
+  }
+  else{
+      art::fill_ptr_vector(pTrigger, pTriggerHandle);
+  }
+  auto ntriggers = pTrigger.size();
+  if (ntriggers != 1){
+      std::cout << "Something went wrong... there should be only one trigger candidate data product, but found " << ntriggers << std::endl;
+      for (const auto& trigger : pTrigger) {
+          std::cout << "Trigger type: " << static_cast<int>(trigger->type) << ", time_candidate: " << trigger->time_candidate << std::endl;
+      }
+      reset();
+      return;
+      // throw std::runtime_error("Unexpected number of trigger candidate data products");
+  }
+
+
+  // ------------------------------ Start Tracks ------------------------------
+
+  std::vector<art::Ptr<recob::Track>> pTracks;
   art::Handle< std::vector<recob::Track> > trackListHandle = evt.getHandle< std::vector<recob::Track> >(fTrackModuleLabel);
 
   if (trackListHandle.isValid()) {
     art::fill_ptr_vector(pTracks, trackListHandle);
   }
   else{
-    mf::LogWarning("XeDopCRT") << "Failed to find Track data product with label " << fTrackModuleLabel << std::endl;
+    std::cout << "Failed to find Track data product with label " << fTrackModuleLabel << std::endl;
     reset();
     return;
   }
   ntracks = pTracks.size();
+  nselected = 0;
 
   std::cout << "Tracks found: " << ntracks << std::endl;
   for (const auto& track : pTracks) {
@@ -121,17 +189,90 @@ void dune::XeDopCRT::analyze(art::Event const& evt)
     bool istrack = dune_ana::DUNEAnaPFParticleUtils::IsTrack(pfp, evt, fPFParticleModuleLabel, fTrackModuleLabel);
     trkIsTrack.push_back(istrack);
 
-    if (istrack && pfp->PdgCode() != 13){
-      mf::LogWarning("XeDopCRT") << "Track is not a muon! PdgCode: " << pfp->PdgCode() << std::endl;
+    // std::cout << "Track start: (" << track->Start().X() << ", " << track->Start().Y() << ", " << track->Start().Z() << ")" << std::endl;
+
+    if (istrack && pfp->PdgCode() != 13 && !pfp->IsPrimary()) {
+      std::cout << "Track is not a muon! PdgCode: " << pfp->PdgCode() << " is primary: " << pfp->IsPrimary()  << std::endl;
+      throw std::runtime_error("Track is not a muon!");
     }
 
-    std::cout << "Track start: (" << track->Start().X() << ", " << track->Start().Y() << ", " << track->Start().Z() << ")" << std::endl;
+    bool isbottom = true;
 
+    isbottom = pTrigger[0]->type == dunedaq::trgdataformats2::TriggerCandidateData::Type::kCTBCustomD ? true : false;
 
+    if (pTrigger[0]->type != dunedaq::trgdataformats2::TriggerCandidateData::Type::kCTBCustomD && pTrigger[0]->type != dunedaq::trgdataformats2::TriggerCandidateData::Type::kCTBCustomC){
+        std::cout << "Something went wrong... trigger candidate type is not kCTBCustomD or kCTBCustomE, but " << static_cast<int>(pTrigger[0]->type) << std::endl;
+        throw std::runtime_error("Unexpected trigger candidate type");
+    }
+
+    std::vector<edges> CRT_triggers = isbottom ? CRT_bot_triggers : CRT_top_triggers;
+
+    bool isSelected = false;
+    // Check if both start and end points are within any of the CRT trigger boxes
+    // If either point is within a box, we consider the track as selected
+    auto box1 = CRT_triggers[0];
+    auto box2 = CRT_triggers[1];
+    if ( (checkInBox(track->Start(), box1) && checkInBox(track->End(), box2)) ||
+         (checkInBox(track->Start(), box2) && checkInBox(track->End(), box1))) {
+        isSelected = true;
+        nselected++;
+    }
+    trkIsSelected.push_back(isSelected);
 
   }
+  // ------------------------------ Finish Tracks ------------------------------
 
 
+  // ------------------------------ Start PDS ------------------------------
+  std::vector<art::Ptr<recob::OpHit>> opHits;
+  art::Handle< std::vector<recob::OpHit> > opListHandle = evt.getHandle< std::vector<recob::OpHit> >(fOpHitModuleLabel);
+
+  art::FindManyP< recob::OpFlash > AssnsFlashHit(opListHandle, evt, fFlashModuleLabel);
+
+  if (opListHandle.isValid()) {
+    art::fill_ptr_vector(opHits, opListHandle);
+    std::sort(opHits.begin(), opHits.end(), [](const art::Ptr<recob::OpHit>& a, const art::Ptr<recob::OpHit>& b) {
+        return a->PeakTimeAbs() < b->PeakTimeAbs();
+    });
+  }
+  else{
+    std::cout << "Failed to find OpHit data product with label " << fOpHitModuleLabel << std::endl;
+    reset();
+    return;
+  }
+  int nhits = opHits.size();
+
+  long long DAQTS = pTrigger[0]->time_candidate;
+  double DAQTS_us = (DAQTS&0xffffffffff) * 0.016;
+  for (const auto& hit : opHits) {
+      if (hit->OpChannel() >= 3000) continue; // Skip hits with OpChannel < 3000
+      double timediff = hit->PeakTimeAbs() - DAQTS_us; //flash_time - DAQTS_us;
+      if ( timediff > -10 && timediff < 35 ){
+
+          std::vector< art::Ptr<recob::OpFlash>> matchedflashes = AssnsFlashHit.at(hit.key());
+          if (matchedflashes.empty()){
+              std::cout << "!!!!!!! No matched flash for hit with OpChannel: " << hit->OpChannel() << " and PeakTimeAbs: " << hit->PeakTimeAbs() << std::endl;
+              continue;
+          }
+          if (matchedflashes.size() > 1){
+              std::cout << "!!!!!!! More than one matched flash for hit with OpChannel: " << hit->OpChannel() << " and PeakTimeAbs: " << hit->PeakTimeAbs() << std::endl;
+              continue;
+          }
+          auto flash = matchedflashes.at(0);
+          opchannel.push_back(hit->OpChannel());
+          pe.push_back(hit->PE());
+          time.push_back(timediff);
+          amplitude.push_back(hit->Amplitude());
+          flashid.push_back(flash.key());
+
+      }
+      if ( timediff > 35 ){
+          // Stop taking hits...
+          break;
+      }
+  }
+
+  // ------------------------------ Finish PDS ------------------------------
   t1->Fill();
   reset();
 }
@@ -141,8 +282,10 @@ void dune::XeDopCRT::beginJob()
   // Implementation of optional member function here.
   art::ServiceHandle<art::TFileService> tfs;
   t1 = tfs->make<TTree>("t1", "CRT data");
-  t1->Branch("fEvent", &fEvent);
+  t1->Branch("run", &run);
+  t1->Branch("event", &event);
   t1->Branch("ntracks", &ntracks);
+  t1->Branch("nselected", &nselected);
   t1->Branch("trkstartx", &trkstartx);
   t1->Branch("trkstarty", &trkstarty);
   t1->Branch("trkstartz", &trkstartz);
@@ -151,9 +294,15 @@ void dune::XeDopCRT::beginJob()
   t1->Branch("trkendz", &trkendz);
   t1->Branch("trkIsTrack", &trkIsTrack);
   t1->Branch("trklen", &trklen);
+  t1->Branch("trkIsSelected", &trkIsSelected);
   // t1->Branch("trkstartdcosx", &trkstartdcosx);
   // t1->Branch("trkstartdcosy", &trkstartdcosy);
   // t1->Branch("trkstartdcosz", &trkstartdcosz);
+  t1->Branch("opchannel", &opchannel);
+  t1->Branch("pe", &pe);
+  t1->Branch("time", &time);
+  t1->Branch("amplitude", &amplitude);
+  t1->Branch("flashid", &flashid);
 
 }
 
@@ -164,8 +313,10 @@ void dune::XeDopCRT::endJob()
 
 void dune::XeDopCRT::reset()
 {
-  fEvent = -9999;
+  run = -9999;
+  event = -9999;
   ntracks = -9999;
+  nselected = -9999;
   trkstartx.clear();
   trkstarty.clear();
   trkstartz.clear();
@@ -174,9 +325,15 @@ void dune::XeDopCRT::reset()
   trkendz.clear();
   trkIsTrack.clear();
   trklen.clear();
+  trkIsSelected.clear();
   trkstartdcosx.clear();
   trkstartdcosy.clear();
   trkstartdcosz.clear();
+  opchannel.clear();
+  pe.clear();
+  time.clear();
+  amplitude.clear();
+  flashid.clear();
 }
 
 DEFINE_ART_MODULE(dune::XeDopCRT)
