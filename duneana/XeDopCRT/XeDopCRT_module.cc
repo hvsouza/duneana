@@ -80,6 +80,57 @@ public:
   void beginJob() override;
   void endJob() override;
 
+  void fill_ophit(art::Event const& evt, std::vector<art::Ptr<dunedaq::trgdataformats2::TriggerCandidateData>> pTrigger, std::string OpHitModuleLabel, std::string fFlashModuleLabel, std::vector<int>& opchannel, std::vector<double>& pe, std::vector<double>& time, std::vector<double>& amplitude){
+      std::vector<art::Ptr<recob::OpHit>> opHits;
+      art::Handle< std::vector<recob::OpHit> > opListHandle = evt.getHandle< std::vector<recob::OpHit> >(OpHitModuleLabel);
+
+      // art::FindManyP< recob::OpFlash > AssnsFlashHit(opListHandle, evt, fFlashModuleLabel);
+      std::cout << OpHitModuleLabel << " OpHit data product size: " << opListHandle->size() << std::endl;
+
+      if (opListHandle.isValid()) {
+          art::fill_ptr_vector(opHits, opListHandle);
+          std::sort(opHits.begin(), opHits.end(), [](const art::Ptr<recob::OpHit>& a, const art::Ptr<recob::OpHit>& b) {
+                  return a->PeakTimeAbs() < b->PeakTimeAbs();
+                  });
+      }
+      else{
+          std::cout << "Failed to find OpHit data product with label " << OpHitModuleLabel << std::endl;
+          reset();
+          return;
+      }
+      int nhits = opHits.size();
+
+      long long DAQTS = pTrigger[0]->time_candidate;
+      double DAQTS_us = (DAQTS&0xffffffffff) * 0.016;
+      for (const auto& hit : opHits) {
+          if (hit->OpChannel() >= 3000) continue; // Skip hits with OpChannel < 3000
+          double timediff = hit->PeakTimeAbs() - DAQTS_us; //flash_time - DAQTS_us;
+          if ( timediff > -10 && timediff < 35 ){
+
+              // std::vector< art::Ptr<recob::OpFlash>> matchedflashes = AssnsFlashHit.at(hit.key());
+              // if (matchedflashes.empty()){
+              //     std::cout << "!!!!!!! No matched flash for hit with OpChannel: " << hit->OpChannel() << " and PeakTimeAbs: " << hit->PeakTimeAbs() << std::endl;
+              //     continue;
+              // }
+              // if (matchedflashes.size() > 1){
+              //     std::cout << "!!!!!!! More than one matched flash for hit with OpChannel: " << hit->OpChannel() << " and PeakTimeAbs: " << hit->PeakTimeAbs() << std::endl;
+              //     continue;
+              // }
+              // auto flash = matchedflashes.at(0);
+              opchannel.push_back(hit->OpChannel());
+              pe.push_back(hit->PE());
+              time.push_back(timediff);
+              amplitude.push_back(hit->Amplitude());
+              // flashid.push_back(flash.key());
+
+          }
+          // if ( timediff > 35 ){
+          //     // Stop taking hits...
+          //     break;
+          // }
+      }
+  }
+
 
 private:
 
@@ -107,7 +158,11 @@ private:
   std::vector<double> pe;
   std::vector<double> time;
   std::vector<double> amplitude;
-  std::vector<int> flashid;
+  // std::vector<int> flashid;
+  std::vector<int> nopre_opchannel;
+  std::vector<double> nopre_pe;
+  std::vector<double> nopre_time;
+  std::vector<double> nopre_amplitude;
 
 
 
@@ -115,7 +170,8 @@ private:
   std::string fPFParticleModuleLabel = "pandora";
 
   std::string fFlashModuleLabel = "opflash";
-  std::string fOpHitModuleLabel = "ophit";
+  std::string fOpHitModuleLabel = "ophitpreprocess";
+  std::string fOpHitNoPreModuleLabel = "ophit";
 
   void reset();
 
@@ -177,17 +233,9 @@ void dune::XeDopCRT::analyze(art::Event const& evt)
 
   std::cout << "Tracks found: " << ntracks << std::endl;
   for (const auto& track : pTracks) {
-    trkstartx.push_back(track->Start().X());
-    trkstarty.push_back(track->Start().Y());
-    trkstartz.push_back(track->Start().Z());
-    trkendx.push_back(track->End().X());
-    trkendy.push_back(track->End().Y());
-    trkendz.push_back(track->End().Z());
-    trklen.push_back(track->Length());
 
     art::Ptr<recob::PFParticle> pfp = dune_ana::DUNEAnaTrackUtils::GetPFParticle(track, evt, fTrackModuleLabel);
     bool istrack = dune_ana::DUNEAnaPFParticleUtils::IsTrack(pfp, evt, fPFParticleModuleLabel, fTrackModuleLabel);
-    trkIsTrack.push_back(istrack);
 
     // std::cout << "Track start: (" << track->Start().X() << ", " << track->Start().Y() << ", " << track->Start().Z() << ")" << std::endl;
 
@@ -217,60 +265,31 @@ void dune::XeDopCRT::analyze(art::Event const& evt)
         isSelected = true;
         nselected++;
     }
-    trkIsSelected.push_back(isSelected);
+    if (isSelected){
+        trkstartx.push_back(track->Start().X());
+        trkstarty.push_back(track->Start().Y());
+        trkstartz.push_back(track->Start().Z());
+        trkendx.push_back(track->End().X());
+        trkendy.push_back(track->End().Y());
+        trkendz.push_back(track->End().Z());
+        trklen.push_back(track->Length());
+        trkIsTrack.push_back(istrack);
+        trkIsSelected.push_back(isSelected);
+    }
+  }
 
+  if (nselected != 1){
+      reset();
+      return;
   }
   // ------------------------------ Finish Tracks ------------------------------
 
 
+  fill_ophit(evt, pTrigger, fOpHitModuleLabel, fFlashModuleLabel, opchannel, pe, time, amplitude);
+  // fill_ophit(evt, pTrigger, fOpHitNoPreModuleLabel, fFlashModuleLabel, nopre_opchannel, nopre_pe, nopre_time, nopre_amplitude);
+
   // ------------------------------ Start PDS ------------------------------
-  std::vector<art::Ptr<recob::OpHit>> opHits;
-  art::Handle< std::vector<recob::OpHit> > opListHandle = evt.getHandle< std::vector<recob::OpHit> >(fOpHitModuleLabel);
 
-  art::FindManyP< recob::OpFlash > AssnsFlashHit(opListHandle, evt, fFlashModuleLabel);
-
-  if (opListHandle.isValid()) {
-    art::fill_ptr_vector(opHits, opListHandle);
-    std::sort(opHits.begin(), opHits.end(), [](const art::Ptr<recob::OpHit>& a, const art::Ptr<recob::OpHit>& b) {
-        return a->PeakTimeAbs() < b->PeakTimeAbs();
-    });
-  }
-  else{
-    std::cout << "Failed to find OpHit data product with label " << fOpHitModuleLabel << std::endl;
-    reset();
-    return;
-  }
-  int nhits = opHits.size();
-
-  long long DAQTS = pTrigger[0]->time_candidate;
-  double DAQTS_us = (DAQTS&0xffffffffff) * 0.016;
-  for (const auto& hit : opHits) {
-      if (hit->OpChannel() >= 3000) continue; // Skip hits with OpChannel < 3000
-      double timediff = hit->PeakTimeAbs() - DAQTS_us; //flash_time - DAQTS_us;
-      if ( timediff > -10 && timediff < 35 ){
-
-          std::vector< art::Ptr<recob::OpFlash>> matchedflashes = AssnsFlashHit.at(hit.key());
-          if (matchedflashes.empty()){
-              std::cout << "!!!!!!! No matched flash for hit with OpChannel: " << hit->OpChannel() << " and PeakTimeAbs: " << hit->PeakTimeAbs() << std::endl;
-              continue;
-          }
-          if (matchedflashes.size() > 1){
-              std::cout << "!!!!!!! More than one matched flash for hit with OpChannel: " << hit->OpChannel() << " and PeakTimeAbs: " << hit->PeakTimeAbs() << std::endl;
-              continue;
-          }
-          auto flash = matchedflashes.at(0);
-          opchannel.push_back(hit->OpChannel());
-          pe.push_back(hit->PE());
-          time.push_back(timediff);
-          amplitude.push_back(hit->Amplitude());
-          flashid.push_back(flash.key());
-
-      }
-      if ( timediff > 35 ){
-          // Stop taking hits...
-          break;
-      }
-  }
 
   // ------------------------------ Finish PDS ------------------------------
   t1->Fill();
@@ -298,11 +317,15 @@ void dune::XeDopCRT::beginJob()
   // t1->Branch("trkstartdcosx", &trkstartdcosx);
   // t1->Branch("trkstartdcosy", &trkstartdcosy);
   // t1->Branch("trkstartdcosz", &trkstartdcosz);
-  t1->Branch("opchannel", &opchannel);
-  t1->Branch("pe", &pe);
-  t1->Branch("time", &time);
-  t1->Branch("amplitude", &amplitude);
-  t1->Branch("flashid", &flashid);
+  t1->Branch("ophit_opchannel", &opchannel);
+  t1->Branch("ophit_pe", &pe);
+  t1->Branch("ophit_time", &time);
+  t1->Branch("ophit_amplitude", &amplitude);
+  // t1->Branch("flashid", &flashid);
+  // t1->Branch("nopre_opchannel", &nopre_opchannel);
+  // t1->Branch("nopre_pe", &nopre_pe);
+  // t1->Branch("nopre_time", &nopre_time);
+  // t1->Branch("nopre_amplitude", &nopre_amplitude);
 
 }
 
@@ -333,7 +356,11 @@ void dune::XeDopCRT::reset()
   pe.clear();
   time.clear();
   amplitude.clear();
-  flashid.clear();
+  // flashid.clear();
+  nopre_opchannel.clear();
+  nopre_pe.clear();
+  nopre_time.clear();
+  nopre_amplitude.clear();
 }
 
 DEFINE_ART_MODULE(dune::XeDopCRT)
