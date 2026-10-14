@@ -17,4 +17,10 @@ add_subdirectory(SolarNuAna)
 add_subdirectory(SupernovaAna)
 add_subdirectory(TrackingAna)
 add_subdirectory(2DROIAna)
+<<<<<<< Updated upstream
 add_subdirectory(WireAna)
+=======
+add_subdirectory(WireAna)
+add_subdirectory(XeDopCRT)
+add_subdirectory(ExtractPDSGeo)
+>>>>>>> Stashed changes

@@ -1,0 +1,37 @@
+#include "services_dune.fcl"
+#include "extractPDSGeoConfig.fcl"
+
+process_name: ExtractPDSGeo
+
+source:
+{
+    module_type: EmptyEvent
+    maxEvents: 1
+}
+
+services:
+{
+    TFileService: { fileName: "test.root" }
+    TimeTracker:       {}
+    RandomNumberGenerator: {}
+    MemoryTracker:         { } # default is one
+    message:      @local::dune_message_services_prod
+    FileCatalogMetadata:
+        @local::art_file_catalog_data
+        @table::protodunevd_reco_services
+}
+
+
+physics:
+{
+    analyzers:
+    {
+        exgeo: @local::extract_pds_geo
+    }
+
+    ana:         [ exgeo ]
+    end_paths:     [ ana ]
+}
+
+services.SignalShapingServiceDUNE: @erase
+
