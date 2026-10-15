@@ -14,6 +14,8 @@
 #include "messagefacility/MessageLogger/MessageLogger.h"
 #include "larcore/Geometry/Geometry.h"
 #include "larcorealg/Geometry/OpDetGeo.h"
+#include <fstream>
+#include <iostream>
 
 namespace dune {
   class ExtractPDSGeo;
@@ -21,58 +23,76 @@ namespace dune {
 
 
 class dune::ExtractPDSGeo : public art::EDAnalyzer {
-public:
-  explicit ExtractPDSGeo(fhicl::ParameterSet const& p);
-  // The compiler-generated destructor is fine for non-base
-  // classes without bare pointers or other resource use.
+  public:
+    explicit ExtractPDSGeo(fhicl::ParameterSet const& p);
+    // The compiler-generated destructor is fine for non-base
+    // classes without bare pointers or other resource use.
 
-  // Plugins should not be copied or assigned.
-  ExtractPDSGeo(ExtractPDSGeo const&) = delete;
-  ExtractPDSGeo(ExtractPDSGeo&&) = delete;
-  ExtractPDSGeo& operator=(ExtractPDSGeo const&) = delete;
-  ExtractPDSGeo& operator=(ExtractPDSGeo&&) = delete;
+    // Plugins should not be copied or assigned.
+    ExtractPDSGeo(ExtractPDSGeo const&) = delete;
+    ExtractPDSGeo(ExtractPDSGeo&&) = delete;
+    ExtractPDSGeo& operator=(ExtractPDSGeo const&) = delete;
+    ExtractPDSGeo& operator=(ExtractPDSGeo&&) = delete;
 
-  // Required functions.
-  void analyze(art::Event const& e) override;
+    // Required functions.
+    void analyze(art::Event const& e) override;
 
-  // Selected optional functions.
-  void beginJob() override;
-  void endJob() override;
+    // Selected optional functions.
+    void beginJob() override;
+    void endJob() override;
 
-private:
+  private:
 
-  // Declare member data here.
+    // Declare member data here.
+    bool fSaveToFile;
+    std::string fFileName;
+    std::ofstream fOutFile;
 
 };
 
 
 dune::ExtractPDSGeo::ExtractPDSGeo(fhicl::ParameterSet const& p)
-  : EDAnalyzer{p}  // ,
+  : EDAnalyzer{p},
+  fSaveToFile(p.get<bool>("SaveToFile")),
+  fFileName(p.get<std::string>("FileName", "PDSGeo.txt"))
   // More initializers here.
 {
   // Call appropriate consumes<>() for any products to be retrieved by this module.
 }
 
-void dune::ExtractPDSGeo::analyze(art::Event const& e)
+void dune::ExtractPDSGeo::analyze(art::Event const&)
 {
-    art::ServiceHandle<geo::Geometry const> geo;
+  art::ServiceHandle<geo::Geometry const> geo;
 
-    std::cout << "Optical Channels positions:  " << geo->Cryostat().NOpDet() << std::endl;
-    for (int ch = 0; ch != int(geo->Cryostat().NOpDet()); ch++) {
-        auto const OpDetCenter = geo->OpDetGeoFromOpDet(ch).GetCenter();
-        std::cout << ch << "  " << OpDetCenter.X() << "  " << OpDetCenter.Y() << "  "
-            << OpDetCenter.Z() << std::endl;
-    }
+  std::ostringstream out;
+  std::cout << "Optical Channels positions:  " << geo->Cryostat().NOpDet() << '\n';
+  // header
+  for (unsigned int ch = 0; ch != geo->Cryostat().NOpDet(); ++ch) {
+    auto const c = geo->OpDetGeoFromOpDet(ch).GetCenter();
+    out << ch << "  " << c.X() << "  " << c.Y() << "  " << c.Z() << '\n';
+  }
+
+  std::cout << out.str();
+  if (fSaveToFile) fOutFile << out.str();
 }
 
 void dune::ExtractPDSGeo::beginJob()
 {
-  // Implementation of optional member function here.
+  std::cout << "Extracting PDS geometry information..." << std::endl;
+  if (fSaveToFile) {
+    std::cout << "Saving to file: " << fFileName << std::endl;
+    fOutFile.open(fFileName, std::ios::out | std::ios::trunc);
+    if (!fOutFile.is_open()) {
+      throw cet::exception("ExtractPDSGeo") << "Could not open output file " << fFileName;
+    }
+  }
 }
+
 
 void dune::ExtractPDSGeo::endJob()
 {
-  // Implementation of optional member function here.
+  if (fOutFile.is_open()) fOutFile.close();
 }
+
 
 DEFINE_ART_MODULE(dune::ExtractPDSGeo)

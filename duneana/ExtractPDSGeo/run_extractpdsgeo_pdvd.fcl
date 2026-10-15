@@ -1,7 +1,7 @@
 #include "services_dune.fcl"
 #include "extractPDSGeoConfig.fcl"
 
-process_name: ExtractPDSGeo
+process_name: ExtractPDSGeoOutput
 
 source:
 {

@@ -3,7 +3,8 @@ BEGIN_PROLOG
 extract_pds_geo:
 {
     module_type: "ExtractPDSGeo"
-
+    SaveToFile: true
+    FileName: "PDSGeo.txt"
 }
 
 END_PROLOG
