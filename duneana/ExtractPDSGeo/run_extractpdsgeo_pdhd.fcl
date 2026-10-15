@@ -1,0 +1,28 @@
+#include "services_dune.fcl"
+#include "extractPDSGeoConfig.fcl"
+
+process_name: ExtractPDSGeo
+
+source:
+{
+    module_type: EmptyEvent
+    maxEvents: 1
+}
+
+services:
+{
+    @table::protodunehd_reco_services
+}
+
+
+physics:
+{
+    analyzers:
+    {
+        exgeo: @local::extract_pds_geo
+    }
+
+    ana:         [ exgeo ]
+    end_paths:     [ ana ]
+}
+

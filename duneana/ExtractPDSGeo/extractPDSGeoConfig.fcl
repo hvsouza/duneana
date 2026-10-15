@@ -3,6 +3,7 @@ BEGIN_PROLOG
 extract_pds_geo:
 {
     module_type: "ExtractPDSGeo"
+
 }
 
 END_PROLOG
